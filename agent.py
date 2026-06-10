@@ -294,7 +294,17 @@ def create_llm_chat_fn(config: dict):
 
         try:
             resp = requests.post(url, headers=headers, json=data, timeout=timeout)
-            body = resp.json()
+            # Try to parse JSON; handle empty/malformed responses
+            try:
+                body = resp.json()
+            except Exception as json_err:
+                raw_text = resp.text[:500] if resp.text else "(empty response)"
+                return f"[LLM Error] JSON decode failed (HTTP {resp.status_code}): {json_err}. Raw: {raw_text}"
+
+            # Handle non-200 status codes
+            if resp.status_code != 200:
+                err_detail = body if isinstance(body, str) else str(body)[:300]
+                return f"[LLM Error] HTTP {resp.status_code}: {err_detail}"
 
             # Handle common API response formats
             if "choices" in body and len(body["choices"]) > 0:

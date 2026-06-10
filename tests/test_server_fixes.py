@@ -46,7 +46,10 @@ class TestRetryLogic(unittest.TestCase):
         server_path = Path(__file__).parent.parent / "server.py"
         content = server_path.read_text(encoding="utf-8")
 
-        self.assertIn('any(kw in err_str.lower() for kw in ("timeout", "connection", "connect", "read timed out"))', content)
+        # Now retryable_kw includes json/rate-limit/server errors too
+        self.assertIn('"expecting value"', content)  # json errors retryable
+        self.assertIn('"rate limit"', content)       # rate limits retryable
+        self.assertIn('retryable_kw', content)       # retryable list exists
 
 
 class TestSafetyValve(unittest.TestCase):

@@ -186,7 +186,13 @@ def _llm_call_with_timeout(llm_fn, messages, timeout_sec: int, req_id: str = "")
         if result_container["error"]:
             err_str = result_container["error"]
             _log(f"LLM call failed: {err_str}", "ERROR", req_id)
-            if any(kw in err_str.lower() for kw in ("timeout", "connection", "connect", "read timed out")):
+            retryable_kw = (
+                "timeout", "connection", "connect", "read timed out",
+                "expecting value", "json", "decode", "empty",
+                "bad request", "server error", "unavailable",
+                "rate limit", "too many requests"
+            )
+            if any(kw in err_str.lower() for kw in retryable_kw):
                 last_error = f"[LLM Error] {err_str}"
                 continue  # retry
             return f"[LLM Error] {err_str}"
