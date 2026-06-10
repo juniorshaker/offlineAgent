@@ -1,0 +1,23 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+
+# Runtime data (generated at runtime)
+memory/
+log/
+output/*.md
+output/*.txt
+!output/.gitkeep
+.prompt_cache.json
+model_capabilities.json
+feedback.jsonl
+*.jsonl
+
+# IDE
+.vscode/
+.idea/
+
+# Optional binaries (large files)
+python/
+browsers/

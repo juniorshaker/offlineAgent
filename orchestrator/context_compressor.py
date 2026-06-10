@@ -93,8 +93,8 @@ def compress_history(
     except Exception:
         return False
 
-    # Rebuild messages: old → summary, keep recent verbatim
-    new_messages = [{"role": "system", "content": f"[Earlier conversation summary]\n{summary}"}]
+    # Use 'user' role for summary since get_history_for_api skips system messages
+    new_messages = [{"role": "user", "content": f"[Conversation History Summary]\n{summary}"}]
     for user_msg, assistant_msg in recent:
         new_messages.append(user_msg)
         if assistant_msg:

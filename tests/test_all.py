@@ -487,9 +487,8 @@ def test_state_manager():
     assert_true(state.needs_compression(0.001), "compression with low trigger")
 
     # 7.7 Clear history
-    system_msgs_before = [m for m in state.messages if m["role"] == "system"]
     state.clear_history()
-    assert_eq(len(state.messages), len(system_msgs_before), "system msgs preserved after clear")
+    assert_eq(len(state.messages), 0, "all msgs cleared after clear")
 
     # 7.8 Status summary
     status = state.status_summary("Test system prompt")
@@ -715,8 +714,7 @@ def test_context_compressor():
     result = compress_history(state, "sys prompt", lambda msgs: "compressed summary", keep_recent=2)
     assert_eq(result, True, "compression performed")
     # Verify compressed content
-    system_msgs = [m for m in state.messages if m["role"] == "system"]
-    has_summary = any("compressed summary" in m.get("content", "") for m in system_msgs)
+    has_summary = any("compressed summary" in str(m.get("content", "")) for m in state.messages)
     assert_true(has_summary, "compressed summary in messages")
 
 

@@ -255,7 +255,10 @@ def create_llm_chat_fn(config: dict):
         print("[WARN] LLM URL not configured. Using echo mode.")
 
         def _echo(messages):
-            last = messages[-1]["content"] if messages else ""
+            if not messages:
+                return "[Echo mode] No messages received."
+            last_msg = messages[-1]
+            last = last_msg.get("content", str(last_msg)) if isinstance(last_msg, dict) else str(last_msg)
             return f"[Echo mode] Received {len(messages)} messages. Last: {last[:200]}"
         return _echo
 
@@ -402,7 +405,7 @@ def main():
         print()
 
     # Initialize logger
-    log_dir = base_dir / "memory"
+    log_dir = base_dir / "log"
     log_dir.mkdir(parents=True, exist_ok=True)
     logger = AgentLogger(log_dir)
     # logger is initialized via constructor

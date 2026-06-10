@@ -22,8 +22,6 @@ class TokenEstimator:
         total = len(text)
         chinese_chars = sum(1 for c in text if '\u4e00' <= c <= '\u9fff' or '\u3400' <= c <= '\u4dbf')
         non_chinese = total - chinese_chars
-
-        # Chinese: ~1.5 chars/token, English/code: ~4 chars/token
         return int(chinese_chars / 1.5 + non_chinese / 4.0)
 
     @staticmethod
@@ -35,7 +33,6 @@ class TokenEstimator:
             if isinstance(content, str):
                 total += TokenEstimator.estimate(content)
             elif isinstance(content, list):
-                # Multi-modal content blocks
                 for block in content:
                     if isinstance(block, dict):
                         total += TokenEstimator.estimate(block.get("text", ""))
@@ -49,8 +46,8 @@ class StateManager:
     def __init__(self, max_history: int = 20, max_tokens: int = 8000):
         self.max_history = max_history
         self.max_tokens = max_tokens
-        self.messages: list[dict] = []  # Full conversation messages
-        self._tool_results: list[str] = []  # Accumulate tool results for this turn
+        self.messages: list[dict] = []
+        self._tool_results: list[str] = []
 
     def add_user_message(self, content: str):
         self.messages.append({"role": "user", "content": content})
@@ -60,9 +57,13 @@ class StateManager:
         self.messages.append({"role": "assistant", "content": content})
 
     def add_tool_result(self, result: str):
-        """Append a tool execution result as a system-level message."""
+        """Append a tool execution result.
+
+        Uses 'user' role (not 'system') to avoid confusing LLMs that only
+        expect a single system message at the beginning of the conversation.
+        """
         self._tool_results.append(result)
-        self.messages.append({"role": "system", "content": f"[Tool Result]\n{result}"})
+        self.messages.append({"role": "user", "content": f"[Tool Result]\n{result}"})
 
     def get_last_user_message(self) -> str:
         for msg in reversed(self.messages):
@@ -77,7 +78,6 @@ class StateManager:
         return ""
 
     def get_recent_assistant_messages(self, count: int = 3) -> list[str]:
-        """Get the last N assistant responses (for topic detection)."""
         results = []
         for msg in reversed(self.messages):
             if msg["role"] == "assistant":
@@ -87,44 +87,44 @@ class StateManager:
         return list(reversed(results))
 
     def estimate_total_tokens(self) -> int:
-        """Estimate total tokens in current conversation."""
-        # System prompt is typically ~2000 tokens, add message tokens
         return TokenEstimator.estimate_messages(self.messages)
 
     def usage_ratio(self) -> float:
-        """Return current token usage as a fraction of max."""
         return self.estimate_total_tokens() / self.max_tokens
 
     def needs_compression(self, trigger_ratio: float = 0.7) -> bool:
-        """Check if compression should be triggered."""
         return self.usage_ratio() > trigger_ratio
 
     def clear_history(self):
-        """Clear conversation history but keep system prompt."""
-        self.messages = [m for m in self.messages if m["role"] == "system"]
+        """Clear conversation history — wipe all messages."""
+        self.messages = []
         self._tool_results = []
 
     def get_history_for_api(self, system_prompt: str) -> list[dict]:
-        """Return messages ready for LLM API call: system prompt + conversation."""
+        """Return messages ready for LLM API call.
+
+        Returns: [system_prompt] + [all non-system messages from state]
+        Skips any 'system' role messages in state to avoid mid-conversation
+        system messages that confuse some LLM APIs.
+        """
         result = [{"role": "system", "content": system_prompt}]
 
-        # Only include non-system, non-tool-result messages in the API call
-        # (tool results are already merged as system messages)
         for msg in self.messages:
+            # Skip old system messages — we supply our own at the top
+            if msg["role"] == "system":
+                continue
             result.append(msg)
 
-        # Enforce max_history (count user/assistant pairs)
+        # Enforce max_history limit on user/assistant pairs
         user_assistant = [m for m in result if m["role"] in ("user", "assistant")]
         if len(user_assistant) > self.max_history * 2:
-            # Keep system + last N user/assistant messages
-            trimmed = [m for m in result if m["role"] == "system"]
+            trimmed = [result[0]]  # Keep system prompt
             trimmed += user_assistant[-(self.max_history * 2):]
             result = trimmed
 
         return result
 
     def status_summary(self, system_prompt: str) -> dict:
-        """Return a status snapshot."""
         tokens = TokenEstimator.estimate(system_prompt) + self.estimate_total_tokens()
         return {
             "tokens_estimate": tokens,

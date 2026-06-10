@@ -4,6 +4,7 @@ Main conversation loop with all guards, hooks, and tool dispatch.
 """
 
 import sys
+import threading
 from pathlib import Path
 
 from .state_manager import StateManager
@@ -16,6 +17,31 @@ def _estimate_tokens(text: str) -> int:
     """Quick token estimation."""
     from .state_manager import TokenEstimator
     return TokenEstimator.estimate(text)
+
+
+def _llm_call_with_timeout(llm_fn, messages, timeout_sec: int) -> str:
+    """Call LLM with a timeout. Returns error string on timeout."""
+    result_container = {"response": None, "error": None, "done": False}
+
+    def _call():
+        try:
+            result_container["response"] = llm_fn(messages)
+        except Exception as e:
+            result_container["error"] = str(e)
+        finally:
+            result_container["done"] = True
+
+    thread = threading.Thread(target=_call, daemon=True)
+    thread.start()
+    thread.join(timeout=timeout_sec)
+
+    if not result_container["done"]:
+        return f"[Timeout] LLM did not respond within {timeout_sec}s."
+
+    if result_container["error"]:
+        return f"[Error] {result_container['error']}"
+
+    return result_container["response"] or ""
 
 
 class ChatLoop:
@@ -48,7 +74,7 @@ class ChatLoop:
 
     def run(self):
         """Start the interactive chat loop."""
-        print("\n  OfflineAgent — Type /help for commands, /exit to quit.\n")
+        print("\n  OfflineAgent -- Type /help for commands, /exit to quit.\n")
         print(f"  Skills loaded: {len(self.skills)}")
         print(f"  Tools: {', '.join(self.tools.names())}")
         print()
@@ -72,7 +98,7 @@ class ChatLoop:
             # Normal conversation turn
             self._handle_turn(user_input)
 
-    # ── Command handlers ────────────────────────────────────────
+    # ── Command handlers ──
 
     def _handle_command(self, cmd: str):
         parts = cmd.split(maxsplit=1)
@@ -173,7 +199,7 @@ class ChatLoop:
         else:
             print(f"  Unknown command: {command}. Type /help for list.")
 
-    # ── Turn handler ────────────────────────────────────────────
+    # ── Turn handler ──
 
     def _handle_turn(self, user_input: str):
         """Process one conversation turn."""
@@ -181,6 +207,7 @@ class ChatLoop:
             self.logger.turn_start(user_input)
 
         agent_cfg = self.config.get("agent", {})
+        llm_timeout = self.config.get("llm", {}).get("timeout", 60)
 
         # ── Topic guard ──
         if (
@@ -191,7 +218,19 @@ class ChatLoop:
             check_interval = agent_cfg.get("topic_guard", {}).get("check_interval", 1)
             if self._turn_since_check >= check_interval:
                 self._turn_since_check = 0
-                result = detect_topic_shift(self.state, user_input, self.llm_chat_fn)
+                # Wrap topic guard LLM call with timeout
+                result_raw = _llm_call_with_timeout(
+                    lambda msgs: detect_topic_shift(self.state, user_input, self.llm_chat_fn),
+                    [{"role": "user", "content": "ping"}],
+                    timeout_sec=min(llm_timeout, 30),
+                )
+                if result_raw.startswith("[Timeout]") or result_raw.startswith("[Error]"):
+                    if self.logger:
+                        self.logger.error_recovery("topic_guard", result_raw[:100], "skip")
+                    result = "SAME"
+                else:
+                    result = result_raw
+
                 if result == "DIFFERENT":
                     recent_msgs = self.state.get_recent_assistant_messages(count=2)
                     from_topic = recent_msgs[0][:60] if recent_msgs else "unknown"
@@ -216,7 +255,6 @@ class ChatLoop:
         messages_for_api = self.state.get_history_for_api(self.system_prompt)
         stripped = check_before_send(model, messages_for_api[1:], self.base_dir / "memory")
         if stripped:
-            # Replace user/assistant messages with stripped versions
             non_system = [m for m in self.state.messages if m["role"] != "system"]
             self.state.messages = [m for m in self.state.messages if m["role"] == "system"] + stripped
 
@@ -226,12 +264,17 @@ class ChatLoop:
             trigger = compression_cfg.get("trigger_ratio", 0.7)
             if self.state.needs_compression(trigger):
                 before_tokens = self.state.estimate_total_tokens()
-                success = compress_history(
-                    self.state,
-                    self.system_prompt,
-                    self.llm_chat_fn,
-                    keep_recent=compression_cfg.get("keep_recent", 2),
-                )
+                try:
+                    success = compress_history(
+                        self.state,
+                        self.system_prompt,
+                        self.llm_chat_fn,
+                        keep_recent=compression_cfg.get("keep_recent", 2),
+                    )
+                except Exception as e:
+                    if self.logger:
+                        self.logger.error_recovery("compress", str(e)[:100], "skip")
+                    success = False
                 if success and self.logger:
                     after_tokens = self.state.estimate_total_tokens()
                     self.logger.compression(before_tokens, after_tokens)
@@ -254,7 +297,7 @@ class ChatLoop:
         # ── Display ──
         print(f"\nAgent> {response}\n")
 
-    # ── Exit handler ────────────────────────────────────────────
+    # ── Exit handler ──
 
     def _handle_exit(self):
         memory_cfg = self.config.get("agent", {}).get("memory", {})
@@ -280,7 +323,7 @@ class ChatLoop:
             pass
 
         if topic:
-            print(f"\n  💡 This conversation covered '{topic}'. Generate a SKILL.md draft? [Y/n]: ", end="")
+            print(f"\n  [Tip] This conversation covered '{topic}'. Generate a SKILL.md draft? [Y/n]: ", end="")
             try:
                 choice = input().strip().lower()
             except (EOFError, KeyboardInterrupt):

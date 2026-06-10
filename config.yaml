@@ -74,3 +74,10 @@ tools:
 server:
   host: "0.0.0.0"
   port: 8999
+
+logging:
+  dir: "./log"
+  level: "INFO"
+  max_log_files: 7
+  console: true
+  file: true
