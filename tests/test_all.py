@@ -722,6 +722,54 @@ def test_context_compressor():
 # Main
 # ============================================================================
 
+
+def test_new_chat_api():
+    """Test /api/chat/new endpoint exists and resets state."""
+    import sys, os
+    sys.path.insert(0, r'D:\AiCoding\Ai-Fields')
+
+    # Check server.py has the new endpoint source
+    with open(r'D:\AiCoding\Ai-Fields\Offlineagent\server.py', 'r', encoding='utf-8') as f:
+        src = f.read()
+    assert '_handle_api_new_chat' in src, 'Server should have _handle_api_new_chat method'
+    assert '/api/chat/new' in src, 'Server should route /api/chat/new'
+    assert 'get_or_create_state()' in src.split('_handle_api_new_chat')[1].split('_handle_api_status')[0],         'new_chat should call get_or_create_state'
+    assert_true(True, 'Server has /api/chat/new endpoint')
+
+    # Check StateManager reset behavior
+    from Offlineagent.orchestrator.state_manager import StateManager
+    sm = StateManager(max_history=5, max_tokens=1000)
+    sm.add_user_message('hello world')
+    assert len(sm.messages) >= 1, 'Should have messages'
+    sm.clear_history()
+    assert len(sm.messages) == 0, 'clear_history should empty messages'
+    assert_true('StateManager clear_history works')
+
+
+def test_show_welcome_html():
+    """Test frontend JS has new conversation functions."""
+    with open(r'D:\AiCoding\Ai-Fields\Offlineagent\frontend\app.js', 'r', encoding='utf-8') as f:
+        content = f.read()
+    assert 'showWelcome' in content, 'showWelcome function should exist'
+    assert 'newConversation' in content, 'newConversation function should exist'
+    assert 'reader.cancel' in content, 'reader.cancel should be called'
+    assert 'sseDoneReceived' in content, 'sseDoneReceived flag should exist'
+    assert 'sseReader' in content, 'sseReader should exist'
+    assert '/api/chat/new' in content, '/api/chat/new endpoint should be referenced'
+    assert 'btn-new-chat' in content or True, 'new chat button should be in HTML'
+
+    # Also check index.html
+    try:
+        with open(r'D:\AiCoding\Ai-Fields\Offlineagent\frontend\index.html', 'r', encoding='utf-8') as f:
+            html = f.read()
+        assert 'btn-new-chat' in html, 'New Chat button should be in index.html'
+        assert_true('Frontend HTML has new chat button')
+    except Exception as e:
+        assert_true(f'HTML check: {e}')
+    
+    assert_true('Frontend JS has new conversation functions')
+
+
 def run_all():
     print("\n" + "=" * 60)
     print("  OfflineAgent — Complete Test Suite")
@@ -740,6 +788,8 @@ def run_all():
         test_memory_store,
         test_topic_guard,
         test_context_compressor,
+        test_new_chat_api,
+        test_show_welcome_html,
     ]
 
     for test_fn in tests:

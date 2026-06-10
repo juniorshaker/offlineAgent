@@ -515,6 +515,36 @@ class AgentHandler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(_json.dumps({"status": "cancelled"}, ensure_ascii=False).encode("utf-8"))
 
+
+    def _handle_api_new_chat(self):
+        """Handle POST /api/chat/new - create a brand-new conversation session."""
+        _log("Creating new conversation session", "INFO")
+        old_state = _server_state.get("state")
+        memory_store = _server_state.get("memory_store")
+        if old_state and memory_store:
+            non_system = [m for m in old_state.messages if m["role"] != "system"]
+            if len(non_system) >= 4:
+                try:
+                    from Offlineagent.memory_layer.memory_summarizer import summarize_conversation
+                    summary = summarize_conversation(non_system, _server_state["llm_chat_fn"])
+                    if summary:
+                        memory_store.add(summary)
+                        _log("Saved memory from previous session")
+                except Exception as e:
+                    _log(f"Memory save skipped: {e}", "WARN")
+        _server_state["state"] = None
+        get_or_create_state()
+        _log("New conversation session created")
+
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self._send_cors()
+        self.end_headers()
+        self.wfile.write(_json.dumps({
+            "status": "created",
+            "message": "New conversation session created."
+        }, ensure_ascii=False).encode("utf-8"))
+
     def _handle_api_status(self):
         """Handle GET /api/status."""
         state = get_or_create_state()
@@ -706,6 +736,8 @@ class AgentHandler(BaseHTTPRequestHandler):
 
         if path == "/api/chat":
             self._handle_api_chat()
+        elif path == "/api/chat/new":
+            self._handle_api_new_chat()
         elif path == "/api/upload":
             self._handle_api_upload()
         elif path == "/api/cancel":
