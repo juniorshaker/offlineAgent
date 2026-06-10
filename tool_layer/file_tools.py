@@ -44,7 +44,7 @@ def read_file(path: str) -> str:
         return f"[Error] Not a file: {p}"
     try:
         content = p.read_text(encoding="utf-8", errors="replace")
-        max_len = 8000
+        max_len = 50000
         if len(content) > max_len:
             return content[:max_len] + f"\n\n[...truncated {len(content) - max_len} chars...]"
         return content

@@ -43,7 +43,7 @@ class TokenEstimator:
 class StateManager:
     """Manages conversation state and token budget."""
 
-    def __init__(self, max_history: int = 20, max_tokens: int = 8000):
+    def __init__(self, max_history: int = 20, max_tokens: int = 128000):
         self.max_history = max_history
         self.max_tokens = max_tokens
         self.messages: list[dict] = []
@@ -147,7 +147,7 @@ class StateManager:
         """Restore state from a dict."""
         sm = cls(
             max_history=data.get("max_history", 20),
-            max_tokens=data.get("max_tokens", 8000),
+            max_tokens=data.get("max_tokens", 128000),
         )
         sm.messages = list(data.get("messages", []))
         return sm

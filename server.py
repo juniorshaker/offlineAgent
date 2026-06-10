@@ -244,7 +244,7 @@ def get_or_create_state() -> StateManager:
         agent_cfg = _server_state["config"].get("agent", {})
         _server_state["state"] = StateManager(
             max_history=agent_cfg.get("max_history", 20),
-            max_tokens=agent_cfg.get("max_tokens_estimate", 8000),
+            max_tokens=agent_cfg.get("max_tokens_estimate", 128000),
         )
         _log("State manager created (new session)")
     return _server_state["state"]
@@ -285,106 +285,239 @@ def build_messages(system_prompt: str, state: StateManager, user_input: str, con
     return messages
 
 
+
+
 def run_tool_loop(messages: list[dict], system_prompt: str, state: StateManager,
                   config: dict, registry: ToolRegistry, logger, req_id: str = "",
                   status_callback=None) -> str:
-    """Run the tool execution loop, yielding status updates via a callback."""
+    """Run the tool execution loop with token-budget control.
+
+    Replaces old fixed max_iterations=10 with Hermes-style while-True loop.
+    - Loop exits naturally when LLM returns no tool calls
+    - Token budget at tool_budget_ratio (default 0.9) triggers forced answer
+    - Cycle detection: 3 consecutive same-tool+same-param triggers warning
+    """
     llm_fn = _server_state["llm_chat_fn"]
     llm_timeout = config.get("llm", {}).get("timeout", 60)
-    max_iterations = 10
+    agent_cfg = config.get("agent", {})
+    budget_ratio = agent_cfg.get("tool_budget_ratio", 0.9)
+    cycle_detection = agent_cfg.get("cycle_detection", True)
+
     iterations = 0
     final_parts = []
     model = config.get("llm", {}).get("model", "unknown")
+    recent_tool_calls: list[tuple[str, str]] = []
 
-    while iterations < max_iterations:
-        # Check cancellation
-        if _is_cancelled(req_id):
-            _log(f"Request cancelled by user at iteration {iterations}", "INFO", req_id)
-            return "[Cancelled] Request was cancelled by user."
-
-        iterations += 1
-        _log(f"Tool loop iteration {iterations}/{max_iterations}, messages={len(messages)}", req_id=req_id)
-
-        if status_callback:
-            status_callback("status", {"text": f"正在调用模型 (第{iterations}轮)...", "type": "llm"})
-
-        t0 = time.time()
-        response = _llm_call_with_timeout(llm_fn, messages, llm_timeout, req_id)
-
-        if _is_cancelled(req_id):
-            _log(f"Request cancelled during LLM call at iteration {iterations}", "INFO", req_id)
-            return "[Cancelled] Request was cancelled by user."
-
-        elapsed = time.time() - t0
-        resp_len = len(response) if response else 0
-        _log(f"LLM response in {elapsed:.1f}s: {resp_len} chars, has_tool_calls={has_tool_calls(response) if response else False}", req_id=req_id)
-
-        if not response:
-            _log("LLM returned empty response", "WARN", req_id)
-            return "[Error] No response from LLM."
-
-        if response.startswith("[Timeout]") or response.startswith("[LLM Error]"):
-            _log(f"LLM error response: {response[:100]}", "ERROR", req_id)
-            return response
-
-        if not has_tool_calls(response):
-            _log(f"No tool calls detected, final response: {resp_len} chars", req_id=req_id)
-            final_parts.append(response)
-            break
-
-        tool_calls = parse_tool_calls(response)
-        text_part = extract_text_without_tools(response)
-        if text_part:
-            final_parts.append(text_part)
-
-        if not tool_calls:
-            _log("has_tool_calls=True but parse returned empty, treating as text", req_id=req_id)
-            final_parts.append(response)
-            break
-
-        _log(f"Parsed {len(tool_calls)} tool call(s): {[tc.name for tc in tool_calls]}", req_id=req_id)
-
-        for tc in tool_calls:
+    try:
+        while True:
             if _is_cancelled(req_id):
+                _log(f"Request cancelled by user at iteration {iterations}", "INFO", req_id)
                 return "[Cancelled] Request was cancelled by user."
 
-            tool_def = registry.get(tc.name)
-            if not tool_def:
-                err = f"[Error] Unknown tool: {tc.name}. Available: {', '.join(registry.names())}"
-                _log(f"Unknown tool requested: {tc.name}", "WARN", req_id)
-                state.add_tool_result(err)
-                continue
-
-            try:
+            usage = state.usage_ratio()
+            if usage >= budget_ratio:
+                _log(
+                    "Token budget exhausted: {:.1%} >= {:.1%}, forcing final response".format(
+                        usage, budget_ratio
+                    ),
+                    "WARN", req_id,
+                )
                 if status_callback:
-                    status_callback("status", {"text": f"正在执行: {tc.name}", "type": "tool", "tool": tc.name})
+                    status_callback("status", {
+                        "text": "Token budget exhausted, generating final response...",
+                        "type": "warn",
+                    })
+                force_msg = (
+                    "[SYSTEM] Token budget nearly exhausted "
+                    + "({}/{}). ".format(state.estimate_total_tokens(), state.max_tokens)
+                    + "Respond DIRECTLY to the user NOW. Do NOT make any more tool calls. "
+                    + "Summarize findings and provide your best answer."
+                )
+                state.messages.append({"role": "user", "content": force_msg})
+                messages = state.get_history_for_api(system_prompt)
+                t0 = time.time()
+                response = _llm_call_with_timeout(llm_fn, messages, llm_timeout, req_id)
+                elapsed = time.time() - t0
+                resp_len = len(response) if response else 0
+                _log(
+                    "Forced final LLM response in {:.1f}s: {} chars".format(elapsed, resp_len),
+                    req_id=req_id,
+                )
+                if (
+                    response
+                    and not response.startswith("[Timeout]")
+                    and not response.startswith("[LLM Error]")
+                ):
+                    final_parts.append(response)
+                else:
+                    final_parts.append(
+                        "[Note: Token budget reached. Unable to generate final response.]"
+                    )
+                break
 
-                _log(f"Executing tool: {tc.name}({str(tc.params)[:100]})", req_id=req_id)
-                t0_tool = time.time()
-                result = registry.dispatch(tc.name, tc.params)
-                tool_elapsed = time.time() - t0_tool
-                result_str = str(result)
-                _log(f"Tool {tc.name} done in {tool_elapsed:.2f}s: {len(result_str)} chars", req_id=req_id)
-                state.add_tool_result(result_str)
-                if logger:
-                    logger.tool_call(tc.name, str(tc.params)[:100], True)
-            except Exception as e:
-                error_msg = f"[Error] Tool {tc.name} failed: {e}"
-                _log(f"Tool {tc.name} failed: {e}", "ERROR", req_id)
-                state.add_tool_result(error_msg)
-                if logger:
-                    logger.tool_call(tc.name, str(tc.params)[:100], False, str(e)[:100])
+            iterations += 1
+            _log(
+                "Tool loop iteration {}, budget={:.1%}, messages={}".format(
+                    iterations, usage, len(messages)
+                ),
+                req_id=req_id,
+            )
 
-        # Refresh messages with tool results
-        messages = state.get_history_for_api(system_prompt)
-    else:
-        _log(f"Reached max iterations ({max_iterations}), generating final response", "WARN", req_id)
-        if status_callback:
-            status_callback("status", {"text": "已达到最大工具调用次数，生成最终回复...", "type": "warn"})
-        final_parts.append("[Note: Max tool iterations reached.]")
+            if status_callback:
+                status_callback("status", {
+                    "text": "Calling model (iteration {})...".format(iterations),
+                    "type": "llm",
+                })
 
-    result = "\n\n".join(p for p in final_parts if p)
-    _log(f"Tool loop complete: {len(result)} chars final response", req_id=req_id)
+            t0 = time.time()
+            response = _llm_call_with_timeout(llm_fn, messages, llm_timeout, req_id)
+
+            if _is_cancelled(req_id):
+                _log(
+                    "Request cancelled during LLM call at iteration {}".format(iterations),
+                    "INFO", req_id,
+                )
+                return "[Cancelled] Request was cancelled by user."
+
+            elapsed = time.time() - t0
+            resp_len = len(response) if response else 0
+            has_tc = has_tool_calls(response) if response else False
+            _log(
+                "LLM response in {:.1f}s: {} chars, has_tool_calls={}".format(
+                    elapsed, resp_len, has_tc
+                ),
+                req_id=req_id,
+            )
+
+            if not response:
+                _log("LLM returned empty response", "WARN", req_id)
+                return "[Error] No response from LLM."
+
+            if response.startswith("[Timeout]") or response.startswith("[LLM Error]"):
+                _log("LLM error response: {}".format(response[:100]), "ERROR", req_id)
+                return response
+
+            if not has_tc:
+                _log(
+                    "No tool calls, final response: {} chars".format(resp_len),
+                    req_id=req_id,
+                )
+                final_parts.append(response)
+                break
+
+            tool_calls = parse_tool_calls(response)
+            text_part = extract_text_without_tools(response)
+            if text_part:
+                final_parts.append(text_part)
+
+            if not tool_calls:
+                _log(
+                    "has_tool_calls=True but parse empty, treating as text",
+                    req_id=req_id,
+                )
+                final_parts.append(response)
+                break
+
+            tc_names = [tc.name for tc in tool_calls]
+            _log(
+                "Parsed {} tool call(s): {}".format(len(tool_calls), tc_names),
+                req_id=req_id,
+            )
+
+            for tc in tool_calls:
+                if _is_cancelled(req_id):
+                    return "[Cancelled] Request was cancelled by user."
+
+                if cycle_detection:
+                    first_param = list(tc.params.values())[0] if tc.params else ""
+                    first_param_str = str(first_param)[:80]
+                    recent_tool_calls.append((tc.name, first_param_str))
+                    if len(recent_tool_calls) > 3:
+                        recent_tool_calls.pop(0)
+                    if len(recent_tool_calls) >= 3:
+                        a, b, c = (
+                            recent_tool_calls[0],
+                            recent_tool_calls[1],
+                            recent_tool_calls[2],
+                        )
+                        if a == b == c:
+                            _log(
+                                "Cycle detected: {}({}) x3, injecting warning".format(
+                                    tc.name, first_param_str
+                                ),
+                                "WARN", req_id,
+                            )
+                            cycle_warning = (
+                                "[SYSTEM] You have called {} with the same parameters 3 times. ".format(tc.name)
+                                + "Stop repeating. Either read actual file contents, switch to a different "
+                                + "tool, or provide your analysis now."
+                            )
+                            state.messages.append(
+                                {"role": "user", "content": cycle_warning}
+                            )
+                            recent_tool_calls.clear()
+                            break
+
+                tool_def = registry.get(tc.name)
+                if not tool_def:
+                    avail = ", ".join(registry.names())
+                    err = "[Error] Unknown tool: {}. Available: {}".format(
+                        tc.name, avail
+                    )
+                    _log("Unknown tool: {}".format(tc.name), "WARN", req_id)
+                    state.add_tool_result(err)
+                    continue
+
+                try:
+                    if status_callback:
+                        status_callback("status", {
+                            "text": "Executing: {}".format(tc.name),
+                            "type": "tool",
+                            "tool": tc.name,
+                        })
+
+                    _log(
+                        "Executing tool: {}({})".format(
+                            tc.name, str(tc.params)[:100]
+                        ),
+                        req_id=req_id,
+                    )
+                    t0_tool = time.time()
+                    result = registry.dispatch(tc.name, tc.params)
+                    tool_elapsed = time.time() - t0_tool
+                    result_str = str(result)
+                    _log(
+                        "Tool {} done in {:.2f}s: {} chars".format(
+                            tc.name, tool_elapsed, len(result_str)
+                        ),
+                        req_id=req_id,
+                    )
+                    state.add_tool_result(result_str)
+                    if logger:
+                        logger.tool_call(tc.name, str(tc.params)[:100], True)
+                except Exception as e:
+                    error_msg = "[Error] Tool {} failed: {}".format(tc.name, e)
+                    _log(
+                        "Tool {} failed: {}".format(tc.name, e),
+                        "ERROR", req_id,
+                    )
+                    state.add_tool_result(error_msg)
+                    if logger:
+                        logger.tool_call(
+                            tc.name, str(tc.params)[:100], False, str(e)[:100]
+                        )
+
+            messages = state.get_history_for_api(system_prompt)
+
+    finally:
+        result = "\n\n".join(p for p in final_parts if p)
+        _log(
+            "Tool loop complete: {} chars final response, iterations={}".format(
+                len(result), iterations
+            ),
+            req_id=req_id,
+        )
+
     return result
 
 

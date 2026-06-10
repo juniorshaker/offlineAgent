@@ -1,5 +1,5 @@
 /**
- * OfflineAgent Web UI — Application Logic
+ * OfflineAgent Web UI - Application Logic
  * SSE streaming + file browser + upload + conversation history + cancel reader on done.
  */
 (function () {
@@ -30,6 +30,7 @@
   // State
   var isStreaming      = false;
   var sseDoneReceived  = false;
+  var newChatPending   = false;
   var currentAgentMsg  = null;
   var abortController  = null;
   var sseReader        = null;
@@ -141,7 +142,7 @@
       var dateStr = c.created_at ? c.created_at.slice(0, 16).replace('T', ' ') : '';
       html += '<div class="history-item" data-id="' + escapeAttr(c.id) + '">' +
         '<span class="history-item-title">' + escapeHtml(c.title || '(untitled)') + '</span>' +
-        '<span class="history-item-meta">' + dateStr + ' · ' + (c.message_count || 0) + ' msgs</span>' +
+        '<span class="history-item-meta">' + dateStr + ' * ' + (c.message_count || 0) + ' msgs</span>' +
         '</div>';
     }
     historyList.innerHTML = html;
@@ -640,7 +641,8 @@
   }
 
   function newConversation() {
-    if (isStreaming) return;
+    if (isStreaming || newChatPending) return;
+    newChatPending = true;
     fetch('/api/chat/new', { method: 'POST' })
       .then(function (r) { return r.json(); })
       .then(function (d) {
@@ -649,7 +651,8 @@
           addMessage('system', 'Previous conversation saved (ID: ' + d.saved_id.slice(0, 8) + '...)');
         }
       })
-      .catch(function () { addMessage('system', 'Failed to create new conversation'); });
+      .catch(function () { addMessage('system', 'Failed to create new conversation'); })
+      .finally(function () { newChatPending = false; });
   }
 
   function showWelcome(title) {

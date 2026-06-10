@@ -373,6 +373,21 @@ def register_tools(registry: ToolRegistry, config: dict, base_dir: Path):
             lambda url, method="GET": browser_tools.web_fetch(url, method),
             {"url": "Target URL", "method": "HTTP method (GET/POST)"},
         ),
+        "write_docx": (
+            "Fill a Word (.docx) template with field values and save",
+            lambda path, fields, template_path: document_tools.write_docx(path, fields, template_path, base_dir),
+            {"path": "Output .docx path", "fields": "JSON string of key-value pairs", "template_path": "Template .docx file path"},
+        ),
+        "write_xlsx": (
+            "Fill an Excel (.xlsx) template with field values and save",
+            lambda path, fields, template_path: document_tools.write_xlsx(path, fields, template_path, base_dir),
+            {"path": "Output .xlsx path", "fields": "JSON string of key-value pairs", "template_path": "Template .xlsx file path"},
+        ),
+        "write_pptx": (
+            "Fill a PowerPoint (.pptx) template with field values and save",
+            lambda path, fields, template_path: document_tools.write_pptx(path, fields, template_path, base_dir),
+            {"path": "Output .pptx path", "fields": "JSON string of key-value pairs", "template_path": "Template .pptx file path"},
+        ),
     }
 
     for tool_name in enabled:
@@ -428,7 +443,7 @@ def main():
     agent_cfg = config.get("agent", {})
     state = StateManager(
         max_history=agent_cfg.get("max_history", 20),
-        max_tokens=agent_cfg.get("max_tokens_estimate", 8000),
+        max_tokens=agent_cfg.get("max_tokens_estimate", 128000),
     )
 
     # Initialize memory

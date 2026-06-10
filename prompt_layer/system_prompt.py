@@ -27,6 +27,7 @@ AGENT_IDENTITY = """You are OfflineAgent, a portable AI assistant running on an 
   <name>tool_name</name>
   <param_name>value</param_name>
   </tool_call>
+- You can call MULTIPLE tools in ONE response by placing multiple <tool_call> blocks together.
 - Think step by step. Break complex tasks into smaller tool calls.
 - Be concise. Prefer actionable answers over long explanations.
 - Default language: Chinese, but follow the user's language."""
@@ -81,6 +82,9 @@ def _build_tools_section(config: dict) -> str:
         "read_template": "- **read_template** (path): Read a template file from templates/.",
         "write_output": "- **write_output** (path, content): Write output to the output/ directory.",
         "web_fetch": "- **web_fetch** (url, method): Make an HTTP request (GET or POST).",
+        "write_docx": "- **write_docx** (path, fields, template_path): Fill a Word template and save.",
+        "write_xlsx": "- **write_xlsx** (path, fields, template_path): Fill an Excel template and save.",
+        "write_pptx": "- **write_pptx** (path, fields, template_path): Fill a PowerPoint template and save.",
     }
 
     for tool_name in enabled:
