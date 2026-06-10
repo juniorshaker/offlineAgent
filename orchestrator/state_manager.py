@@ -133,3 +133,22 @@ class StateManager:
             "turns": len([m for m in self.messages if m["role"] == "user"]),
             "max_history": self.max_history,
         }
+
+    def to_dict(self) -> dict:
+        """Serialize state to a storable dict."""
+        return {
+            "messages": list(self.messages),
+            "max_history": self.max_history,
+            "max_tokens": self.max_tokens,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "StateManager":
+        """Restore state from a dict."""
+        sm = cls(
+            max_history=data.get("max_history", 20),
+            max_tokens=data.get("max_tokens", 8000),
+        )
+        sm.messages = list(data.get("messages", []))
+        return sm
+

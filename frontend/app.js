@@ -1,35 +1,40 @@
 /**
  * OfflineAgent Web UI — Application Logic
- * SSE streaming + file browser + upload + new conversation + cancel reader on done.
+ * SSE streaming + file browser + upload + conversation history + cancel reader on done.
  */
 (function () {
   'use strict';
 
   // === DOM Refs ===
-  var messagesEl   = document.getElementById('messages');
-  var inputEl      = document.getElementById('user-input');
-  var sendBtn      = document.getElementById('btn-send');
-  var stopBtn      = document.getElementById('btn-stop');
-  var clearBtn     = document.getElementById('btn-clear');
-  var newChatBtn   = document.getElementById('btn-new-chat');
-  var filesBtn     = document.getElementById('btn-files');
-  var attachBtn    = document.getElementById('btn-attach');
-  var fileInput    = document.getElementById('file-input');
-  var statusDot    = document.getElementById('status-dot');
-  var modelNameEl  = document.getElementById('model-name');
-  var chatEl       = document.getElementById('chat');
-  var sidebar      = document.getElementById('sidebar');
-  var sidebarClose = document.getElementById('btn-sidebar-close');
-  var sidebarList  = document.getElementById('sidebar-list');
-  var breadcrumb   = document.getElementById('sidebar-breadcrumb');
+  var messagesEl    = document.getElementById('messages');
+  var inputEl       = document.getElementById('user-input');
+  var sendBtn       = document.getElementById('btn-send');
+  var stopBtn       = document.getElementById('btn-stop');
+  var clearBtn      = document.getElementById('btn-clear');
+  var newChatBtn    = document.getElementById('btn-new-chat');
+  var historyBtn    = document.getElementById('btn-history');
+  var filesBtn      = document.getElementById('btn-files');
+  var attachBtn     = document.getElementById('btn-attach');
+  var fileInput     = document.getElementById('file-input');
+  var statusDot     = document.getElementById('status-dot');
+  var modelNameEl   = document.getElementById('model-name');
+  var chatEl        = document.getElementById('chat');
+  var sidebar       = document.getElementById('sidebar');
+  var sidebarClose  = document.getElementById('btn-sidebar-close');
+  var sidebarList   = document.getElementById('sidebar-list');
+  var breadcrumb    = document.getElementById('sidebar-breadcrumb');
+  var historyPanel  = document.getElementById('history-panel');
+  var historyClose  = document.getElementById('btn-history-close');
+  var historyList   = document.getElementById('history-list');
 
   // State
   var isStreaming      = false;
-  var sseDoneReceived   = false;  // when true, pump exits early
+  var sseDoneReceived  = false;
   var currentAgentMsg  = null;
   var abortController  = null;
-  var sseReader        = null;    // reference to ReadableStream reader for cancel
+  var sseReader        = null;
   var sidebarOpen      = false;
+  var historyOpen      = false;
   var currentDir       = '';
   var uploadedFiles    = [];
   var selectedFileRow  = null;
@@ -43,6 +48,8 @@
   stopBtn.addEventListener('click', stopGeneration);
   clearBtn.addEventListener('click', clearHistory);
   if (newChatBtn) newChatBtn.addEventListener('click', newConversation);
+  if (historyBtn) historyBtn.addEventListener('click', toggleHistory);
+  if (historyClose) historyClose.addEventListener('click', closeHistoryPanel);
   filesBtn.addEventListener('click', toggleSidebar);
   sidebarClose.addEventListener('click', function () { closeSidebar(); });
   attachBtn.addEventListener('click', function () { fileInput.click(); });
@@ -89,13 +96,91 @@
     this.style.height = Math.min(this.scrollHeight, 160) + 'px';
   });
 
+  // Click-outside to close panels
   document.addEventListener('click', function (e) {
     if (sidebarOpen && window.innerWidth <= 900) {
       if (!sidebar.contains(e.target) && e.target !== filesBtn && !filesBtn.contains(e.target)) {
         closeSidebar();
       }
     }
+    if (historyOpen) {
+      if (!historyPanel.contains(e.target) && e.target !== historyBtn && !historyBtn.contains(e.target)) {
+        closeHistoryPanel();
+      }
+    }
   });
+
+  // === History Panel ===
+  function toggleHistory() {
+    if (historyOpen) { closeHistoryPanel(); return; }
+    historyOpen = true;
+    historyPanel.classList.remove('hidden');
+    historyList.innerHTML = '<div class="history-empty">Loading...</div>';
+    fetch('/api/chat/list')
+      .then(function (r) { return r.json(); })
+      .then(renderHistoryList)
+      .catch(function () {
+        historyList.innerHTML = '<div class="history-empty">Failed to load</div>';
+      });
+  }
+
+  function closeHistoryPanel() {
+    historyOpen = false;
+    historyPanel.classList.add('hidden');
+  }
+
+  function renderHistoryList(data) {
+    var convs = data.conversations || [];
+    if (!convs.length) {
+      historyList.innerHTML = '<div class="history-empty">No saved conversations yet</div>';
+      return;
+    }
+    var html = '';
+    for (var i = 0; i < convs.length; i++) {
+      var c = convs[i];
+      var dateStr = c.created_at ? c.created_at.slice(0, 16).replace('T', ' ') : '';
+      html += '<div class="history-item" data-id="' + escapeAttr(c.id) + '">' +
+        '<span class="history-item-title">' + escapeHtml(c.title || '(untitled)') + '</span>' +
+        '<span class="history-item-meta">' + dateStr + ' · ' + (c.message_count || 0) + ' msgs</span>' +
+        '</div>';
+    }
+    historyList.innerHTML = html;
+
+    // Click handlers
+    var items = historyList.querySelectorAll('.history-item');
+    for (var j = 0; j < items.length; j++) {
+      items[j].addEventListener('click', function () {
+        var id = this.getAttribute('data-id');
+        if (id) switchConversation(id);
+      });
+    }
+  }
+
+  function switchConversation(convId) {
+    if (isStreaming) return;
+    closeHistoryPanel();
+
+    // Add a system message while loading
+    addMessage('system', 'Switching conversation...');
+
+    fetch('/api/chat/switch/' + convId, { method: 'POST' })
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        if (data.error) {
+          addMessage('system', 'Error: ' + data.error);
+          return;
+        }
+        // Clear messages and show loaded conversation
+        messagesEl.innerHTML = '';
+        addMessage('system', 'Switched to: ' + escapeHtml(data.title || convId));
+        // Fetch status to update model info
+        fetchStatus();
+        inputEl.focus();
+      })
+      .catch(function () {
+        addMessage('system', 'Failed to switch conversation');
+      });
+  }
 
   // === Sidebar ===
   function toggleSidebar() {
@@ -195,12 +280,8 @@
     if (selectedFileRow) selectedFileRow.classList.remove('selected');
     row.classList.add('selected');
     selectedFileRow = row;
-    if (row.classList.contains('dir')) {
-      navigateTo(path);
-      hidePreview();
-    } else {
-      readAndPreviewFile(path);
-    }
+    if (row.classList.contains('dir')) { navigateTo(path); hidePreview(); }
+    else { readAndPreviewFile(path); }
   }
 
   function readAndPreviewFile(path) {
@@ -217,8 +298,8 @@
       panel.id = 'sidebar-preview';
       panel.className = 'sidebar-preview';
       panel.innerHTML = '<div class="preview-header"><span id="preview-title">Preview</span>' +
-        '<button class="btn-icon" id="btn-preview-close" title="Close" style="width:22px;height:22px">' +
-        '&times;</button></div><div class="preview-content" id="preview-content"></div>';
+        '<button class="btn-icon" id="btn-preview-close" title="Close" style="width:22px;height:22px">&times;</button></div>' +
+        '<div class="preview-content" id="preview-content"></div>';
       sidebar.appendChild(panel);
       document.getElementById('btn-preview-close').addEventListener('click', hidePreview);
     }
@@ -417,24 +498,14 @@
     var buffer = '';
 
     function pump() {
-      // If done/error already received from SSE event, cancel reader immediately
       if (sseDoneReceived) {
         reader.cancel().catch(function () {});
         sseReader = null;
         return Promise.resolve();
       }
       return reader.read().then(function (result) {
-        if (result.done) {
-          finishStreaming();
-          sseReader = null;
-          return;
-        }
-        // Double-check: if done received while waiting for read
-        if (sseDoneReceived) {
-          reader.cancel().catch(function () {});
-          sseReader = null;
-          return;
-        }
+        if (result.done) { finishStreaming(); sseReader = null; return; }
+        if (sseDoneReceived) { reader.cancel().catch(function () {}); sseReader = null; return; }
         buffer += decoder.decode(result.value, { stream: true });
         var parts = buffer.split('\n\n');
         buffer = parts.pop() || '';
@@ -451,53 +522,37 @@
           }
           if (eventType && dataStr) handleSSEEvent(eventType, dataStr);
         }
-        // If done received during event processing, cancel and stop
-        if (sseDoneReceived) {
-          reader.cancel().catch(function () {});
-          sseReader = null;
-          return;
-        }
+        if (sseDoneReceived) { reader.cancel().catch(function () {}); sseReader = null; return; }
         return pump();
       });
     }
-
     return pump();
   }
 
   function handleSSEEvent(event, dataStr) {
     var data;
     try { data = JSON.parse(dataStr); } catch (e) { return; }
-
     switch (event) {
       case 'status':
         var label = data.text || 'Processing...';
         if (data.type === 'tool') addToolBlock('running', data.tool || 'Tool', label);
         if (data.type === 'llm') { statusDot.classList.add('active'); statusDot.title = 'thinking'; }
         break;
-
       case 'message':
         sseDoneReceived = true;
         finishStreaming();
-        if (currentAgentMsg) {
-          currentAgentMsg.textContent = data.text || '';
-        } else {
-          currentAgentMsg = addMessage('agent', data.text || '');
-        }
+        if (currentAgentMsg) { currentAgentMsg.textContent = data.text || ''; }
+        else { currentAgentMsg = addMessage('agent', data.text || ''); }
         scrollToBottom();
         break;
-
       case 'done':
         sseDoneReceived = true;
         finishStreaming();
         break;
-
       case 'error':
         sseDoneReceived = true;
         finishStreaming();
-        if (currentAgentMsg) {
-          currentAgentMsg.textContent = '';
-          currentAgentMsg.classList.remove('streaming-cursor');
-        }
+        if (currentAgentMsg) { currentAgentMsg.textContent = ''; currentAgentMsg.classList.remove('streaming-cursor'); }
         addToolBlock('error', 'Error', data.text || 'Unknown error', true);
         break;
     }
@@ -506,15 +561,9 @@
   function finishStreaming() {
     setStreaming(false);
     var running = messagesEl.querySelectorAll('.tool-block-icon.running');
-    for (var i = 0; i < running.length; i++) {
-      running[i].classList.remove('running');
-      running[i].classList.add('done');
-    }
+    for (var i = 0; i < running.length; i++) { running[i].classList.remove('running'); running[i].classList.add('done'); }
     if (currentAgentMsg) currentAgentMsg.classList.remove('streaming-cursor');
-    if (sseReader) {
-      sseReader.cancel().catch(function () {});
-      sseReader = null;
-    }
+    if (sseReader) { sseReader.cancel().catch(function () {}); sseReader = null; }
   }
 
   function addToolBlock(status, name, detail, expanded) {
@@ -569,14 +618,8 @@
   function stopGeneration() {
     if (!isStreaming) return;
     sseDoneReceived = true;
-    if (sseReader) {
-      sseReader.cancel().catch(function () {});
-      sseReader = null;
-    }
-    if (abortController) {
-      abortController.abort();
-      abortController = null;
-    }
+    if (sseReader) { sseReader.cancel().catch(function () {}); sseReader = null; }
+    if (abortController) { abortController.abort(); abortController = null; }
     if (currentAgentMsg) {
       currentAgentMsg.classList.remove('streaming-cursor');
       var existing = currentAgentMsg.textContent.trim();
@@ -600,7 +643,12 @@
     if (isStreaming) return;
     fetch('/api/chat/new', { method: 'POST' })
       .then(function (r) { return r.json(); })
-      .then(function () { showWelcome('New Conversation'); })
+      .then(function (d) {
+        showWelcome('New Conversation');
+        if (d.saved_id) {
+          addMessage('system', 'Previous conversation saved (ID: ' + d.saved_id.slice(0, 8) + '...)');
+        }
+      })
       .catch(function () { addMessage('system', 'Failed to create new conversation'); });
   }
 

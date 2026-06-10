@@ -68,6 +68,65 @@ _server_state = {
 _cancel_flags: dict[str, bool] = {}
 _cancel_lock = threading.Lock()
 
+# Per-session conversation persistence
+_CONV_DIR = _AGENT_DIR / "memory" / "conversations"
+_CONV_DIR.mkdir(parents=True, exist_ok=True)
+_conversations: dict[str, dict] = {}  # in-memory index
+
+def _save_conversation(state) -> str | None:
+    """Save current conversation to disk. Returns conversation id."""
+    if not state or len(state.messages) <= 1:
+        return None
+    import uuid, json
+    conv_id = uuid.uuid4().hex[:12]
+    user_msgs = [m["content"] for m in state.messages if m["role"] == "user"]
+    title = (user_msgs[0][:40] + "...") if user_msgs else "(empty)"
+    data = {
+        "id": conv_id,
+        "title": title,
+        "created_at": __import__("datetime").datetime.now().isoformat(),
+        "message_count": len(state.messages),
+        "state": state.to_dict(),
+    }
+    filepath = _CONV_DIR / f"{conv_id}.json"
+    with open(filepath, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)
+    _conversations[conv_id] = {
+        "id": conv_id, "title": title, "path": str(filepath),
+        "created_at": data["created_at"], "message_count": data["message_count"],
+    }
+    _log(f"Conversation saved: {conv_id} ({title})")
+    return conv_id
+
+def _load_conversation(conv_id: str) -> dict | None:
+    """Load a conversation from disk. Returns full data dict or None."""
+    filepath = _CONV_DIR / f"{conv_id}.json"
+    if not filepath.exists():
+        return None
+    import json
+    with open(filepath, "r", encoding="utf-8") as f:
+        return json.load(f)
+
+def _list_conversations() -> list[dict]:
+    """List all saved conversations (newest first)."""
+    import json
+    results = []
+    for fpath in sorted(_CONV_DIR.glob("*.json"), reverse=True):
+        try:
+            with open(fpath, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            results.append({
+                "id": data["id"],
+                "title": data["title"],
+                "created_at": data["created_at"],
+                "message_count": data["message_count"],
+            })
+        except Exception:
+            pass
+    return results
+
+
+
 # -- Unified Logging --
 LOG_DIR = _AGENT_DIR / "log"
 LOG_DIR.mkdir(parents=True, exist_ok=True)
@@ -520,6 +579,14 @@ class AgentHandler(BaseHTTPRequestHandler):
         """Handle POST /api/chat/new - create a brand-new conversation session."""
         _log("Creating new conversation session", "INFO")
         old_state = _server_state.get("state")
+
+        # Save old conversation to history before resetting
+        saved_id = None
+        if old_state and len([m for m in old_state.messages if m["role"] != "system"]) >= 2:
+            saved_id = _save_conversation(old_state)
+            _log(f"Saved previous conversation: {saved_id}")
+
+        # Also save to memory store for auto-summary
         memory_store = _server_state.get("memory_store")
         if old_state and memory_store:
             non_system = [m for m in old_state.messages if m["role"] != "system"]
@@ -542,7 +609,54 @@ class AgentHandler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(_json.dumps({
             "status": "created",
-            "message": "New conversation session created."
+            "message": "New conversation session created.",
+            "saved_id": saved_id,
+        }, ensure_ascii=False).encode("utf-8"))
+
+
+    def _handle_api_chat_list(self):
+        """Handle GET /api/chat/list - list saved conversations."""
+        convs = _list_conversations()
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self._send_cors()
+        self.end_headers()
+        self.wfile.write(_json.dumps({"conversations": convs}, ensure_ascii=False).encode("utf-8"))
+
+    def _handle_api_chat_switch(self, conv_id: str):
+        """Handle POST /api/chat/switch/<id> - switch to a saved conversation."""
+        _log(f"Switching to conversation: {conv_id}", "INFO")
+
+        # Save current conversation first
+        old_state = _server_state.get("state")
+        if old_state and len([m for m in old_state.messages if m["role"] != "system"]) >= 2:
+            _save_conversation(old_state)
+
+        # Load the requested conversation
+        data = _load_conversation(conv_id)
+        if not data:
+            self.send_response(404)
+            self.send_header("Content-Type", "application/json")
+            self._send_cors()
+            self.end_headers()
+            self.wfile.write(_json.dumps({"error": "Conversation not found"}, ensure_ascii=False).encode("utf-8"))
+            return
+
+        # Restore state
+        from Offlineagent.orchestrator.state_manager import StateManager
+        new_state = StateManager.from_dict(data["state"])
+        _server_state["state"] = new_state
+        _log(f"Switched to conversation: {conv_id} ({data['title']})")
+
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self._send_cors()
+        self.end_headers()
+        self.wfile.write(_json.dumps({
+            "status": "switched",
+            "id": conv_id,
+            "title": data["title"],
+            "message_count": data["message_count"],
         }, ensure_ascii=False).encode("utf-8"))
 
     def _handle_api_status(self):
@@ -721,7 +835,9 @@ class AgentHandler(BaseHTTPRequestHandler):
         parsed = urlparse(self.path)
         path = parsed.path
 
-        if path == "/api/status":
+        if path == "/api/chat/list":
+            self._handle_api_chat_list()
+        elif path == "/api/status":
             self._handle_api_status()
         elif path == "/api/files":
             self._handle_api_files(parsed)
@@ -736,6 +852,9 @@ class AgentHandler(BaseHTTPRequestHandler):
 
         if path == "/api/chat":
             self._handle_api_chat()
+        elif path.startswith("/api/chat/switch/"):
+            conv_id = path.split("/")[-1]
+            self._handle_api_chat_switch(conv_id)
         elif path == "/api/chat/new":
             self._handle_api_new_chat()
         elif path == "/api/upload":

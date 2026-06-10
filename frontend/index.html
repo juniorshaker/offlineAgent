@@ -12,6 +12,7 @@
 <div id="app">
   <div class="sidebar-overlay"></div>
 
+  <!-- File Browser Sidebar -->
   <aside id="sidebar" class="sidebar hidden">
     <div class="sidebar-header">
       <span class="sidebar-title">Files</span>
@@ -31,14 +32,25 @@
     <div class="sidebar-breadcrumb" id="sidebar-breadcrumb"></div>
     <div class="sidebar-list" id="sidebar-list"></div>
     <div class="sidebar-preview" id="sidebar-preview">
-      <div class="preview-header">
-        <span id="preview-title">Preview</span>
-        <button class="btn-icon" id="btn-preview-close" title="Close" style="width:22px;height:22px">&times;</button>
-      </div>
+      <div class="preview-header"><span id="preview-title">Preview</span><button class="btn-icon" id="btn-preview-close" title="Close" style="width:22px;height:22px">&times;</button></div>
       <div class="preview-content" id="preview-content"></div>
     </div>
   </aside>
 
+  <!-- History Panel -->
+  <div id="history-panel" class="history-panel hidden">
+    <div class="history-header">
+      <span class="history-title">Conversation History</span>
+      <button class="btn-icon" id="btn-history-close" title="Close">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6L6 18M6 6l12 12"/></svg>
+      </button>
+    </div>
+    <div class="history-list" id="history-list">
+      <div class="history-empty">Loading...</div>
+    </div>
+  </div>
+
+  <!-- Main chat area -->
   <div class="main-panel">
     <header id="header">
       <div class="header-left">
@@ -49,6 +61,9 @@
         <span class="status-dot" id="status-dot" title="idle"></span>
       </div>
       <div class="header-right">
+        <button class="btn-icon" id="btn-history" title="Conversation history">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+        </button>
         <button class="btn-icon" id="btn-new-chat" title="New conversation">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>
         </button>

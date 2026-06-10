@@ -770,6 +770,137 @@ def test_show_welcome_html():
     assert_true('Frontend JS has new conversation functions')
 
 
+
+# ============================================================================
+# 13. Conversation Persistence
+# ============================================================================
+
+def test_conversation_persistence():
+    _header("13. Conversation Persistence")
+    import tempfile, json, uuid, time
+    from pathlib import Path
+
+    with tempfile.TemporaryDirectory() as tmp:
+        base = Path(tmp)
+        conv_dir = base / "memory" / "conversations"
+        conv_dir.mkdir(parents=True, exist_ok=True)
+
+        # 13.1 StateManager to_dict / from_dict roundtrip
+        from Offlineagent.orchestrator.state_manager import StateManager
+        sm = StateManager(max_history=10, max_tokens=8000)
+        sm.add_user_message("Hello")
+        sm.add_assistant_message("Hi there! How can I help?")
+        sm.add_user_message("Write a Java test")
+        sm.add_assistant_message("Use JUnit 5 with @Test annotation.")
+
+        d = sm.to_dict()
+        assert_true("messages" in d, "to_dict has messages")
+        assert_true("max_history" in d, "to_dict has max_history")
+        assert_true("max_tokens" in d, "to_dict has max_tokens")
+        assert_eq(len(d["messages"]), 4, "to_dict has 4 messages")
+        assert_eq(d["messages"][0]["role"], "user", "first msg role preserved")
+        assert_eq(d["messages"][0]["content"], "Hello", "first msg content preserved")
+
+        # 13.2 StateManager from_dict reconstructs correctly
+        sm2 = StateManager.from_dict(d)
+        assert_eq(len(sm2.messages), 4, "from_dict restores 4 messages")
+        assert_eq(sm2.messages[0]["role"], "user", "from_dict role preserved")
+        assert_eq(sm2.messages[3]["content"], "Use JUnit 5 with @Test annotation.", "from_dict content preserved")
+        assert_eq(sm2.max_history, 10, "from_dict max_history preserved")
+        assert_eq(sm2.max_tokens, 8000, "from_dict max_tokens preserved")
+
+        # 13.3 Save conversation to disk (simulate server logic)
+        conv_id = str(uuid.uuid4())[:8]
+        title = "Test Conversation"
+        filepath = conv_dir / f"{conv_id}.json"
+        data = {
+            "id": conv_id,
+            "title": title,
+            "created_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
+            "state": sm.to_dict(),
+            "message_count": len(sm.messages),
+        }
+        filepath.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+        assert_true(filepath.exists(), "Conversation file saved to disk")
+
+        # 13.4 Load conversation from disk
+        loaded = json.loads(filepath.read_text(encoding="utf-8"))
+        assert_eq(loaded["id"], conv_id, "loaded id matches")
+        assert_eq(loaded["title"], title, "loaded title matches")
+        assert_eq(loaded["message_count"], 4, "loaded message_count matches")
+        sm3 = StateManager.from_dict(loaded["state"])
+        assert_eq(len(sm3.messages), 4, "loaded state has 4 messages")
+        assert_eq(sm3.messages[0]["content"], "Hello", "loaded state first msg correct")
+
+        # 13.5 List conversations (newest first)
+        conv_id2 = str(uuid.uuid4())[:8]
+        data2 = {
+            "id": conv_id2,
+            "title": "Second Conversation",
+            "created_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
+            "state": {"messages": [], "max_history": 10, "max_tokens": 8000},
+            "message_count": 0,
+        }
+        (conv_dir / f"{conv_id2}.json").write_text(json.dumps(data2, ensure_ascii=False), encoding="utf-8")
+
+        files = sorted(conv_dir.glob("*.json"), key=lambda p: p.stat().st_mtime, reverse=True)
+        convs = []
+        for fp in files:
+            d = json.loads(fp.read_text(encoding="utf-8"))
+            convs.append({"id": d["id"], "title": d["title"], "message_count": d.get("message_count", 0)})
+        assert_eq(len(convs), 2, "2 conversations listed")
+        assert_eq(convs[0]["title"], "Second Conversation", "newest first")
+
+        # 13.6 Empty conversations directory returns empty list
+        empty_dir = base / "empty_conv"
+        empty_dir.mkdir()
+        assert_eq(len(list(empty_dir.glob("*.json"))), 0, "empty dir returns no conversations")
+
+        # 13.7 StateManager with non-text content (tool results)
+        sm4 = StateManager(max_history=5, max_tokens=1000)
+        sm4.add_user_message("Describe this")
+        sm4.add_tool_result("File contents: test data")
+        d4 = sm4.to_dict()
+        sm5 = StateManager.from_dict(d4)
+        assert_eq(len(sm5.messages), 2, "state with tool result roundtrips")
+        assert_in("[Tool Result]", sm5.messages[1]["content"], "tool result marker preserved")
+
+
+def test_conversation_api_routes():
+    _header("14. Conversation API Routes")
+    from pathlib import Path
+
+    server_path = Path(__file__).resolve().parent.parent / "server.py"
+    with open(server_path, "r", encoding="utf-8") as f:
+        src = f.read()
+
+    assert_in("/api/chat/list", src, "GET /api/chat/list route exists")
+    assert_in("/api/chat/switch/", src, "POST /api/chat/switch/<id> route exists")
+    assert_in("/api/chat/new", src, "POST /api/chat/new route exists")
+    assert_in("_handle_api_chat_list", src, "_handle_api_chat_list handler exists")
+    assert_in("_handle_api_chat_switch", src, "_handle_api_chat_switch handler exists")
+    assert_in("_handle_api_new_chat", src, "_handle_api_new_chat handler exists")
+    assert_in("_save_conversation", src, "_save_conversation function exists")
+    assert_in("_load_conversation", src, "_load_conversation function exists")
+    assert_in("_list_conversations", src, "_list_conversations function exists")
+    assert_in("_CONV_DIR", src, "_CONV_DIR variable exists")
+    assert_in("memory", src, "conversation storage uses memory dir")
+    assert_in("conversations", src, "conversation storage uses conversations dir")
+
+    js_path = Path(__file__).resolve().parent.parent / "frontend" / "app.js"
+    with open(js_path, "r", encoding="utf-8") as f:
+        js = f.read()
+    assert_in("/api/chat/list", js, "JS references /api/chat/list")
+    assert_in("/api/chat/switch/", js, "JS references /api/chat/switch/")
+
+    html_path = Path(__file__).resolve().parent.parent / "frontend" / "index.html"
+    with open(html_path, "r", encoding="utf-8") as f:
+        html = f.read()
+    assert_in("history-panel", html, "HTML has history-panel element")
+    assert_in("history-list", html, "HTML has history-list element")
+    assert_in("btn-history", html, "HTML has btn-history element")
+
+
 def run_all():
     print("\n" + "=" * 60)
     print("  OfflineAgent — Complete Test Suite")
@@ -790,6 +921,8 @@ def run_all():
         test_context_compressor,
         test_new_chat_api,
         test_show_welcome_html,
+        test_conversation_persistence,
+        test_conversation_api_routes,
     ]
 
     for test_fn in tests:
