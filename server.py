@@ -140,7 +140,7 @@ def build_messages(system_prompt: str, state: StateManager, user_input: str, con
 
 
 def run_tool_loop(messages: list[dict], system_prompt: str, state: StateManager,
-                  config: dict, registry: ToolRegistry, logger) -> str:
+                  config: dict, registry: ToolRegistry, logger, status_callback=None) -> str:
     """Run the tool execution loop, yielding status updates via a callback.
 
     This is a simplified version for web streaming. It runs synchronously
@@ -154,6 +154,9 @@ def run_tool_loop(messages: list[dict], system_prompt: str, state: StateManager,
 
     while iterations < max_iterations:
         iterations += 1
+
+        if status_callback:
+            status_callback("status", {"text": f"正在调用模型 (第{iterations}轮)...", "type": "llm"})
 
         response = llm_fn(messages)
         if not response:
@@ -182,6 +185,9 @@ def run_tool_loop(messages: list[dict], system_prompt: str, state: StateManager,
 
             # Web mode: skip confirmation dialogs, auto-approve safe tools
             try:
+                if status_callback:
+                    status_callback("status", {"text": f"正在执行: {tc.name}", "type": "tool", "tool": tc.name})
+
                 result = registry.dispatch(tc.name, tc.params)
                 result_str = str(result)
                 state.add_tool_result(result_str)
@@ -196,6 +202,8 @@ def run_tool_loop(messages: list[dict], system_prompt: str, state: StateManager,
         # Refresh messages with tool results
         messages = state.get_history_for_api(system_prompt)
     else:
+        if status_callback:
+            status_callback("status", {"text": "已达到最大工具调用次数，生成最终回复...", "type": "warn"})
         final_parts.append("[Note: Max tool iterations reached.]")
 
     return "\n\n".join(p for p in final_parts if p)
@@ -308,10 +316,11 @@ class AgentHandler(BaseHTTPRequestHandler):
                 return
 
             # Normal turn
+            send_sse("status", {"text": "正在分析上下文...", "type": "llm"})
             messages = build_messages(system_prompt, state, user_input, config)
 
             # Run tool loop with streaming
-            response = run_tool_loop(messages, system_prompt, state, config, registry, logger)
+            response = run_tool_loop(messages, system_prompt, state, config, registry, logger, send_sse)
             state.add_assistant_message(response)
 
             send_sse("message", {"text": response})
@@ -440,10 +449,11 @@ def main():
     print(f"  Press Ctrl+C to stop.\n")
 
     try:
-        server.serve_forever()
+        server.serve_forever(poll_interval=0.1)
     except KeyboardInterrupt:
         print("\n  Shutting down...")
         server.shutdown()
+        server.server_close()
 
 
 if __name__ == "__main__":

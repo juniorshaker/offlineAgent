@@ -142,6 +142,13 @@
         showToolIndicator(true, data.tool || 'Working...');
         break;
 
+      case 'status':
+        showToolIndicator(true, data.text || 'Processing...');
+        if (data.type === 'tool') {
+          agentMsg.innerHTML += '<span class="tool-step">🔧 ' + (data.text || '') + '</span>\n';
+        }
+        break;
+
       case 'done':
         setStreaming(false);
         showToolIndicator(false);
