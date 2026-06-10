@@ -153,7 +153,7 @@ def read_template(path: str, base_dir: Path) -> str:
 
 def _read_docx_template(p: Path, base_dir: Path) -> str:
     """Extract text and placeholders from a .docx template."""
-    _try_imports(base_dir / ".." / "vendor")
+    _try_imports(base_dir / "vendor")
     if _docx is None:
         return (
             "[Warning] python-docx library not available.\n"
@@ -190,7 +190,7 @@ def _read_docx_template(p: Path, base_dir: Path) -> str:
 
 def _read_xlsx_template(p: Path, base_dir: Path) -> str:
     """Extract text and placeholders from an .xlsx template."""
-    _try_imports(base_dir / ".." / "vendor")
+    _try_imports(base_dir / "vendor")
     if _openpyxl is None:
         return (
             "[Warning] openpyxl library not available.\n"
@@ -229,7 +229,7 @@ def _read_xlsx_template(p: Path, base_dir: Path) -> str:
 
 def _read_pptx_template(p: Path, base_dir: Path) -> str:
     """Extract text and placeholders from a .pptx template."""
-    _try_imports(base_dir / ".." / "vendor")
+    _try_imports(base_dir / "vendor")
     if _pptx is None:
         return (
             "[Warning] python-pptx library not available.\n"
@@ -304,7 +304,7 @@ def write_docx(path: str, fields, template_path: str, base_dir: Path) -> str:
     Returns:
         Result string with status and output path.
     """
-    _try_imports(base_dir / ".." / "vendor")
+    _try_imports(base_dir / "vendor")
     if _docx is None:
         return (
             "[Error] python-docx library not available.\n"
@@ -376,7 +376,7 @@ def write_xlsx(path: str, fields, template_path: str, base_dir: Path) -> str:
     Returns:
         Result string with status and output path.
     """
-    _try_imports(base_dir / ".." / "vendor")
+    _try_imports(base_dir / "vendor")
     if _openpyxl is None:
         return (
             "[Error] openpyxl library not available.\n"
@@ -442,7 +442,7 @@ def write_pptx(path: str, fields, template_path: str, base_dir: Path) -> str:
     Returns:
         Result string with status and output path.
     """
-    _try_imports(base_dir / ".." / "vendor")
+    _try_imports(base_dir / "vendor")
     if _pptx is None:
         return (
             "[Error] python-pptx library not available.\n"
