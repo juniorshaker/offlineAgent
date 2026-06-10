@@ -1,0 +1,76 @@
+# =============================================================================
+# OfflineAgent Configuration
+# =============================================================================
+
+llm:
+  url: "http://your-internal-api/v1/chat/completions"
+  model: "Qwen3"
+  timeout: 60
+  extra_headers: {}
+
+skills:
+  paths:
+    - "./skills"
+    - "~/.codex/skills"
+    - "~/.openclaw/skills"
+  preprocessing:
+    template_vars: true
+    inline_shell: false
+
+agent:
+  max_history: 20
+  max_tokens_estimate: 8000
+  system_prompt_extra: ""
+
+  compression:
+    enabled: true
+    trigger_ratio: 0.7
+    keep_recent: 2
+
+  error_recovery:
+    enabled: true
+    max_retries: 2
+    retry_delay: 2
+
+  topic_guard:
+    enabled: true
+    check_interval: 1
+
+  memory:
+    enabled: true
+    max_recent: 3
+    auto_summarize_on_exit: true
+
+  feedback:
+    enabled: true
+
+tools:
+  enabled:
+    - read_file
+    - write_file
+    - list_dir
+    - search_code
+    - shell
+    - read_template
+    - write_output
+    - web_fetch
+  shell:
+    allowed:
+      - mvn
+      - javac
+      - java
+      - git
+      - python
+      - pip
+      - npm
+      - docker
+    require_confirm: true
+  file_write:
+    require_confirm: true
+  browser:
+    enabled: false
+    engine: playwright
+
+server:
+  host: "0.0.0.0"
+  port: 8999

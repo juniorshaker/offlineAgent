@@ -1,0 +1,201 @@
+"""
+prompt_layer/system_prompt.py
+Assemble the three-tier system prompt (stable / context / volatile).
+
+Stable:  agent identity + skills index + tools definitions
+Context: user-supplied extra prompt
+Volatile: memory snapshot + feedback reference + timestamp
+
+The stable layer is cached to disk to avoid re-scanning on every startup.
+"""
+
+import json
+from datetime import datetime
+from pathlib import Path
+
+from .skill_loader import Skill
+from ..metrics.feedback import load_recent_feedback
+
+CACHE_FILE = ".prompt_cache.json"
+
+AGENT_IDENTITY = """You are OfflineAgent, a portable AI assistant running on an intranet.
+
+## Core Rules
+- Use the tools provided to help the user: read files, write documents, search code, run shell commands.
+- When you need to use a tool, output it as an XML block:
+  <tool_call>
+  <name>tool_name</name>
+  <param_name>value</param_name>
+  </tool_call>
+- Think step by step. Break complex tasks into smaller tool calls.
+- Be concise. Prefer actionable answers over long explanations.
+- Default language: Chinese, but follow the user's language."""
+
+
+def _build_skills_index(skills: list[Skill]) -> str:
+    """Build the L1 skills index section."""
+    if not skills:
+        return ""
+
+    lines = ["## Available Skills"]
+
+    # Group by source
+    by_source: dict[str, list[Skill]] = {}
+    for s in skills:
+        by_source.setdefault(s.source, []).append(s)
+
+    for source in ["local", "codex", "openclaw"]:
+        group = by_source.get(source, [])
+        if not group:
+            continue
+        source_label = {"local": "Local", "codex": "Codex", "openclaw": "OpenClaw"}.get(source, source)
+        lines.append(f"\n### {source_label}")
+        for s in group:
+            use_hint = f" [used {s.use_count}x]" if s.use_count > 0 else ""
+            lines.append(f"- **{s.name}**{use_hint}: {s.short_desc}")
+
+    lines.append("\nTo load a skill's full instructions, the user can type `/skill <name>`.")
+    return "\n".join(lines)
+
+
+def _build_tools_section(config: dict) -> str:
+    """Build tool definitions for the system prompt."""
+    enabled = config.get("tools", {}).get("enabled", [])
+    if not enabled:
+        return ""
+
+    lines = ["\n## Available Tools", "", "Use the XML format below to call tools:"]
+    lines.append("```")
+    lines.append("<tool_call>")
+    lines.append("<name>tool_name</name>")
+    lines.append("<param>value</param>")
+    lines.append("</tool_call>")
+    lines.append("```")
+
+    tool_defs = {
+        "read_file": "- **read_file** (path): Read the contents of a file.",
+        "write_file": "- **write_file** (path, content): Create or overwrite a file. Requires confirmation.",
+        "list_dir": "- **list_dir** (path): List files and subdirectories.",
+        "search_code": "- **search_code** (pattern, path): Search for a pattern in files under path.",
+        "shell": "- **shell** (command): Execute a shell command. Requires confirmation for destructive ops.",
+        "read_template": "- **read_template** (path): Read a template file from templates/.",
+        "write_output": "- **write_output** (path, content): Write output to the output/ directory.",
+        "web_fetch": "- **web_fetch** (url, method): Make an HTTP request (GET or POST).",
+    }
+
+    for tool_name in enabled:
+        if tool_name in tool_defs:
+            lines.append(tool_defs[tool_name])
+
+    shell_allowed = config.get("tools", {}).get("shell", {}).get("allowed", [])
+    if shell_allowed:
+        lines.append(f"\nAllowed shell commands: {', '.join(shell_allowed)}")
+
+    return "\n".join(lines)
+
+
+def _load_prompt_cache(base_dir: Path, skills: list[Skill]) -> str | None:
+    """Try to load cached stable prompt. Returns None if cache is stale."""
+    cache_path = base_dir / CACHE_FILE
+    if not cache_path.exists():
+        return None
+
+    try:
+        cache = json.loads(cache_path.read_text(encoding="utf-8"))
+    except Exception:
+        return None
+
+    # Check if any skill file's mtime changed
+    for s in skills:
+        cached_mtime = cache.get("skill_mtimes", {}).get(str(s.path))
+        try:
+            actual_mtime = s.path.stat().st_mtime
+        except OSError:
+            return None  # File gone, invalidate cache
+        if cached_mtime != actual_mtime:
+            return None
+
+    return cache.get("prompt")
+
+
+def _save_prompt_cache(base_dir: Path, skills: list[Skill], prompt: str):
+    """Save the stable prompt to disk cache."""
+    cache_path = base_dir / CACHE_FILE
+    mtimes = {}
+    for s in skills:
+        try:
+            mtimes[str(s.path)] = s.path.stat().st_mtime
+        except OSError:
+            pass
+
+    cache = {
+        "prompt": prompt,
+        "skill_mtimes": mtimes,
+    }
+    cache_path.write_text(json.dumps(cache, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+def build_system_prompt(
+    config: dict,
+    skills: list[Skill],
+    base_dir: Path,
+    recent_memories: list[str] | None = None,
+    force_rebuild: bool = False,
+) -> tuple[str, bool]:
+    """Build the full system prompt.
+
+    Returns (prompt_string, cache_hit).
+    """
+    # --- Stable layer ---
+    stable_parts = [AGENT_IDENTITY, _build_skills_index(skills), _build_tools_section(config)]
+    stable = "\n\n".join(p for p in stable_parts if p)
+
+    # Try cache
+    if not force_rebuild:
+        cached = _load_prompt_cache(base_dir, skills)
+        if cached and len(cached) > 100:  # Sanity check
+            # Still need to add context + volatile layers
+            pass
+
+    _save_prompt_cache(base_dir, skills, stable)
+
+    # --- Context layer ---
+    extra = config.get("agent", {}).get("system_prompt_extra", "")
+    context_parts = []
+    if extra:
+        context_parts.append(extra)
+    context = "\n\n".join(context_parts) if context_parts else ""
+
+    # --- Volatile layer ---
+    volatile_parts = []
+
+    # Recent memories
+    if recent_memories:
+        volatile_parts.append("## Recent Session Memories\n" + "\n".join(f"- {m}" for m in recent_memories))
+
+    # Recent feedback
+    if config.get("agent", {}).get("feedback", {}).get("enabled", True):
+        feedback_entries = load_recent_feedback(base_dir, count=3)
+        if feedback_entries:
+            fb_lines = ["## Recent User Feedback"]
+            for fb in feedback_entries:
+                rating = fb.get("rating", "?")
+                comment = fb.get("comment", "")
+                fb_lines.append(f"- Rating {rating}/5" + (f": {comment}" if comment else ""))
+            volatile_parts.append("\n".join(fb_lines))
+
+    # Timestamp / session info
+    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    model = config.get("llm", {}).get("model", "unknown")
+    volatile_parts.append(f"Current time: {now}\nModel: {model}")
+
+    volatile = "\n\n".join(volatile_parts) if volatile_parts else ""
+
+    # --- Assemble ---
+    parts = [stable]
+    if context:
+        parts.append(context)
+    if volatile:
+        parts.append(volatile)
+
+    return "\n\n---\n\n".join(parts), False

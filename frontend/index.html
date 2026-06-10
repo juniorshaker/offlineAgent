@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>OfflineAgent</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><text y='28' font-size='28'>OA</text></svg>">
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+
+<div id="app">
+  <!-- Header -->
+  <header id="header">
+    <div class="header-left">
+      <span class="logo">OfflineAgent</span>
+      <span class="badge" id="status-badge">idle</span>
+    </div>
+    <div class="header-right">
+      <span class="model-name" id="model-name">--</span>
+      <button class="btn-icon" id="btn-clear" title="Clear history">C</button>
+      <button class="btn-icon" id="btn-status" title="Status">S</button>
+    </div>
+  </header>
+
+  <!-- Chat area -->
+  <main id="chat">
+    <div id="messages"></div>
+    <div id="tool-indicator" class="hidden">
+      <span class="spinner"></span>
+      <span id="tool-label">Working...</span>
+    </div>
+  </main>
+
+  <!-- Input area -->
+  <footer id="input-area">
+    <textarea
+      id="user-input"
+      placeholder="Send a message... (Type /help for commands)"
+      rows="1"
+      autofocus
+    ></textarea>
+    <button id="btn-send" class="btn-send" title="Send">&uarr;</button>
+  </footer>
+</div>
+
+<script src="/app.js"></script>
+</body>
+</html>
