@@ -1,7 +1,6 @@
 /**
- * OfflineAgent Web UI - Application Logic
- *
- * Zero-dependency vanilla JS. Connects to server.py via SSE.
+ * OfflineAgent Web UI — Application Logic
+ * OpenClaw-inspired design with SSE streaming and inline tool blocks.
  */
 
 (function () {
@@ -12,13 +11,12 @@
   const inputEl = document.getElementById('user-input');
   const sendBtn = document.getElementById('btn-send');
   const clearBtn = document.getElementById('btn-clear');
-  const statusBtn = document.getElementById('btn-status');
-  const statusBadge = document.getElementById('status-badge');
+  const statusDot = document.getElementById('status-dot');
   const modelNameEl = document.getElementById('model-name');
-  const toolIndicator = document.getElementById('tool-indicator');
-  const toolLabel = document.getElementById('tool-label');
+  const chatEl = document.getElementById('chat');
 
   let isStreaming = false;
+  let currentAgentMsg = null;
 
   // -- Init --
   fetchStatus();
@@ -27,19 +25,23 @@
   // -- Event listeners --
   sendBtn.addEventListener('click', sendMessage);
   clearBtn.addEventListener('click', clearHistory);
-  statusBtn.addEventListener('click', fetchStatus);
 
   inputEl.addEventListener('keydown', function (e) {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       sendMessage();
     }
+    // Ctrl+L to clear
+    if (e.key === 'l' && e.ctrlKey) {
+      e.preventDefault();
+      clearHistory();
+    }
   });
 
   // Auto-resize textarea
   inputEl.addEventListener('input', function () {
     this.style.height = 'auto';
-    this.style.height = Math.min(this.scrollHeight, 120) + 'px';
+    this.style.height = Math.min(this.scrollHeight, 160) + 'px';
   });
 
   // -- Functions --
@@ -49,15 +51,19 @@
     const text = inputEl.value.trim();
     if (!text) return;
 
+    // Clear welcome message
+    const welcome = messagesEl.querySelector('.welcome');
+    if (welcome) welcome.remove();
+
     addMessage('user', text);
     inputEl.value = '';
     inputEl.style.height = 'auto';
 
     setStreaming(true);
-    showToolIndicator(true, 'Thinking...');
 
-    // Track the agent message element for streaming updates
-    const agentMsg = addMessage('agent', '');
+    // Create agent message element
+    currentAgentMsg = addMessage('agent', '');
+    currentAgentMsg.classList.add('streaming-cursor');
 
     fetch('/api/chat', {
       method: 'POST',
@@ -71,10 +77,12 @@
         return readSSE(response);
       })
       .catch(function (err) {
-        agentMsg.textContent = '[Error] ' + err.message;
-        agentMsg.classList.add('system');
+        if (currentAgentMsg) {
+          currentAgentMsg.textContent = '';
+          currentAgentMsg.classList.remove('streaming-cursor');
+        }
+        addToolBlock('error', 'Connection Error', err.message, false);
         setStreaming(false);
-        showToolIndicator(false);
       });
   }
 
@@ -82,37 +90,38 @@
     var reader = response.body.getReader();
     var decoder = new TextDecoder();
     var buffer = '';
-    var agentMsg = messagesEl.lastElementChild;
 
     function pump() {
       return reader.read().then(function (result) {
         if (result.done) {
-          setStreaming(false);
-          showToolIndicator(false);
+          finishStreaming();
           return;
         }
 
         buffer += decoder.decode(result.value, { stream: true });
 
-        // Parse SSE events from buffer
-        var lines = buffer.split('\n');
-        buffer = lines.pop() || ''; // keep incomplete line
+        var parts = buffer.split('\n\n');
+        buffer = parts.pop() || '';
 
-        var currentEvent = null;
-        var currentData = '';
+        for (var i = 0; i < parts.length; i++) {
+          var block = parts[i].trim();
+          if (!block) continue;
 
-        for (var i = 0; i < lines.length; i++) {
-          var line = lines[i];
+          var eventType = null;
+          var dataStr = '';
 
-          if (line.startsWith('event: ')) {
-            currentEvent = line.slice(7).trim();
-          } else if (line.startsWith('data: ')) {
-            currentData += line.slice(6);
-          } else if (line === '' && currentEvent) {
-            // End of event
-            handleSSEEvent(currentEvent, currentData, agentMsg);
-            currentEvent = null;
-            currentData = '';
+          var lines = block.split('\n');
+          for (var j = 0; j < lines.length; j++) {
+            var line = lines[j];
+            if (line.startsWith('event: ')) {
+              eventType = line.slice(7).trim();
+            } else if (line.startsWith('data: ')) {
+              dataStr += line.slice(6);
+            }
+          }
+
+          if (eventType && dataStr) {
+            handleSSEEvent(eventType, dataStr);
           }
         }
 
@@ -123,7 +132,7 @@
     return pump();
   }
 
-  function handleSSEEvent(event, dataStr, agentMsg) {
+  function handleSSEEvent(event, dataStr) {
     var data;
     try {
       data = JSON.parse(dataStr);
@@ -132,35 +141,95 @@
     }
 
     switch (event) {
-      case 'message':
-        showToolIndicator(false);
-        agentMsg.textContent = data.text || '';
-        scrollToBottom();
-        break;
-
-      case 'tool':
-        showToolIndicator(true, data.tool || 'Working...');
-        break;
-
       case 'status':
-        showToolIndicator(true, data.text || 'Processing...');
+        var label = data.text || 'Processing...';
         if (data.type === 'tool') {
-          agentMsg.innerHTML += '<span class="tool-step">🔧 ' + (data.text || '') + '</span>\n';
+          addToolBlock('running', data.tool || 'Tool', label);
         }
         break;
 
+      case 'message':
+        finishStreaming();
+        if (currentAgentMsg) {
+          currentAgentMsg.textContent = data.text || '';
+        } else {
+          currentAgentMsg = addMessage('agent', data.text || '');
+        }
+        scrollToBottom();
+        break;
+
       case 'done':
-        setStreaming(false);
-        showToolIndicator(false);
+        finishStreaming();
         break;
 
       case 'error':
-        agentMsg.textContent = '[Error] ' + (data.text || 'Unknown');
-        agentMsg.classList.add('system');
-        setStreaming(false);
-        showToolIndicator(false);
+        finishStreaming();
+        if (currentAgentMsg) {
+          currentAgentMsg.textContent = '';
+          currentAgentMsg.classList.remove('streaming-cursor');
+        }
+        addToolBlock('error', 'Error', data.text || 'Unknown error', true);
         break;
     }
+  }
+
+  function finishStreaming() {
+    setStreaming(false);
+    // Finalize all running tool blocks
+    var running = messagesEl.querySelectorAll('.tool-block-icon.running');
+    for (var i = 0; i < running.length; i++) {
+      running[i].classList.remove('running');
+      running[i].classList.add('done');
+    }
+    // Remove streaming cursor
+    if (currentAgentMsg) {
+      currentAgentMsg.classList.remove('streaming-cursor');
+    }
+  }
+
+  function addToolBlock(status, name, detail, expanded) {
+    var block = document.createElement('div');
+    block.className = 'tool-block' + (expanded ? ' expanded' : '');
+    block.setAttribute('data-tool', name);
+
+    var header = document.createElement('div');
+    header.className = 'tool-block-header';
+
+    var icon = document.createElement('span');
+    icon.className = 'tool-block-icon ' + status;
+
+    var nameEl = document.createElement('span');
+    nameEl.className = 'tool-block-name';
+    nameEl.textContent = name;
+
+    var statusEl = document.createElement('span');
+    statusEl.className = 'tool-block-status';
+    statusEl.textContent = status === 'running' ? 'executing...' : status === 'done' ? 'done' : 'failed';
+
+    var chevron = document.createElement('span');
+    chevron.className = 'tool-block-chevron';
+    chevron.textContent = '▸';
+
+    header.appendChild(icon);
+    header.appendChild(nameEl);
+    header.appendChild(statusEl);
+    header.appendChild(chevron);
+
+    var body = document.createElement('div');
+    body.className = 'tool-block-body';
+    body.textContent = detail;
+
+    // Toggle expand on click
+    header.addEventListener('click', function () {
+      block.classList.toggle('expanded');
+    });
+
+    block.appendChild(header);
+    block.appendChild(body);
+    messagesEl.appendChild(block);
+
+    scrollToBottom();
+    return block;
   }
 
   function addMessage(role, text) {
@@ -173,29 +242,26 @@
   }
 
   function scrollToBottom() {
-    var chat = document.getElementById('chat');
-    chat.scrollTop = chat.scrollHeight;
+    chatEl.scrollTop = chatEl.scrollHeight;
   }
 
   function setStreaming(active) {
     isStreaming = active;
     sendBtn.disabled = active;
     inputEl.disabled = active;
-    statusBadge.textContent = active ? 'active' : 'idle';
-    statusBadge.className = 'badge' + (active ? ' active' : '');
-  }
 
-  function showToolIndicator(show, label) {
-    if (show) {
-      toolIndicator.classList.remove('hidden');
-      if (label) toolLabel.textContent = label;
+    if (active) {
+      statusDot.classList.add('active');
+      statusDot.title = 'active';
     } else {
-      toolIndicator.classList.add('hidden');
+      statusDot.classList.remove('active', 'error');
+      statusDot.title = 'idle';
     }
   }
 
   function clearHistory() {
     if (isStreaming) return;
+
     fetch('/api/chat', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -203,10 +269,14 @@
     })
       .then(function () {
         messagesEl.innerHTML = '';
-        addMessage('system', 'Conversation cleared.');
+        // Restore welcome
+        var welcome = document.createElement('div');
+        welcome.className = 'message system welcome';
+        welcome.innerHTML = '<div class="welcome-icon">OA</div><div class="welcome-text"><strong>OfflineAgent 已就绪</strong><span>输入 /help 查看可用命令</span></div>';
+        messagesEl.appendChild(welcome);
       })
       .catch(function () {
-        addMessage('system', 'Failed to clear history.');
+        addMessage('system', '清空历史失败');
       });
   }
 
@@ -215,19 +285,12 @@
       .then(function (r) { return r.json(); })
       .then(function (status) {
         modelNameEl.textContent = status.model || '--';
-
-        // Show as a system message
-        var info = [
-          'Model: ' + (status.model || 'N/A'),
-          'Skills: ' + (status.skills_count || 0),
-          'Tools: ' + (status.tools || []).join(', '),
-          'Tokens: ' + status.tokens_estimate + '/' + status.max_tokens + ' (' + status.usage_percent + '%)',
-        ].join(' | ');
-
-        addMessage('system', info);
+        statusDot.title = 'connected: ' + (status.model || '--');
       })
       .catch(function () {
-        modelNameEl.textContent = 'offline';
+        modelNameEl.textContent = '--';
+        statusDot.classList.add('error');
+        statusDot.title = 'disconnected';
       });
   }
 })();

@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>OfflineAgent</title>
-<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><text y='28' font-size='28'>OA</text></svg>">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='6' fill='%233b82f6'/><text x='5' y='23' font-size='20' font-weight='bold' fill='white'>OA</text></svg>">
 <link rel="stylesheet" href="/style.css">
 </head>
 <body>
@@ -13,34 +13,47 @@
   <!-- Header -->
   <header id="header">
     <div class="header-left">
-      <span class="logo">OfflineAgent</span>
-      <span class="badge" id="status-badge">idle</span>
+      <div class="logo-group">
+        <span class="logo-icon"></span>
+        <span class="logo-text">OfflineAgent</span>
+      </div>
+      <span class="model-pill" id="model-name">--</span>
+      <span class="status-dot" id="status-dot" title="idle"></span>
     </div>
     <div class="header-right">
-      <span class="model-name" id="model-name">--</span>
-      <button class="btn-icon" id="btn-clear" title="Clear history">C</button>
-      <button class="btn-icon" id="btn-status" title="Status">S</button>
+      <button class="btn-icon" id="btn-clear" title="新对话">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0 0l-4-4m4 4l4-4M4 17v1a2 2 0 002 2h12a2 2 0 002-2v-1"/></svg>
+      </button>
     </div>
   </header>
 
   <!-- Chat area -->
   <main id="chat">
-    <div id="messages"></div>
-    <div id="tool-indicator" class="hidden">
-      <span class="spinner"></span>
-      <span id="tool-label">Working...</span>
+    <div id="messages">
+      <div class="message system welcome">
+        <div class="welcome-icon">OA</div>
+        <div class="welcome-text">
+          <strong>OfflineAgent 已就绪</strong>
+          <span>输入 /help 查看可用命令</span>
+        </div>
+      </div>
     </div>
   </main>
 
   <!-- Input area -->
   <footer id="input-area">
-    <textarea
-      id="user-input"
-      placeholder="Send a message... (Type /help for commands)"
-      rows="1"
-      autofocus
-    ></textarea>
-    <button id="btn-send" class="btn-send" title="Send">&uarr;</button>
+    <div class="input-wrapper">
+      <textarea
+        id="user-input"
+        placeholder="输入消息... (Enter 发送, Shift+Enter 换行)"
+        rows="1"
+        autofocus
+      ></textarea>
+      <button id="btn-send" class="btn-send" title="发送">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
+      </button>
+    </div>
+    <div class="input-hint">Ctrl+L 清空 · /help 查看命令</div>
   </footer>
 </div>
 
