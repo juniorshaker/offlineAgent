@@ -259,6 +259,25 @@ def create_llm_chat_fn(config: dict):
             return f"[Echo mode] Received {len(messages)} messages. Last: {last[:200]}"
         return _echo
 
+    # Connection test on startup
+    print(f"[INFO] Testing LLM connection: {url} (model={model})...")
+    try:
+        test_data = {"model": model, "messages": [{"role": "user", "content": "hi"}]}
+        test_resp = requests.post(url, headers={"Content-Type": "application/json", **extra_headers},
+                               json=test_data, timeout=min(timeout, 15))
+        if test_resp.status_code == 200:
+            print(f"[INFO] LLM connection OK (status={test_resp.status_code})")
+        else:
+            print(f"[WARN] LLM responded with status={test_resp.status_code}")
+            body_preview = test_resp.text[:200]
+            print(f"[WARN] Response preview: {body_preview}")
+    except requests.ConnectionError as e:
+        print(f"[FAIL] Cannot connect to LLM: {e}")
+        print(f"[FAIL] URL: {url}")
+        print(f"[FAIL] Check: (1) network/VPN (2) firewall (3) config.yaml llm.url")
+    except Exception as e:
+        print(f"[FAIL] LLM connection test failed: {e}")
+
     def _llm_chat(messages: list[dict]) -> str:
         """Send messages to LLM and return response text."""
         headers = {
