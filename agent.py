@@ -119,6 +119,10 @@ def _parse_simple_yaml(raw: str) -> dict:
 def _parse_scalar(val: str):
     """Parse a YAML scalar value."""
     val = val.strip()
+    # Strip inline comments (e.g. "value  # comment" -> "value")
+    ci = val.find("  #")
+    if ci != -1:
+        val = val[:ci].strip()
     if val == "true":
         return True
     if val == "false":
