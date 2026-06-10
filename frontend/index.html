@@ -4,60 +4,108 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>OfflineAgent</title>
-<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='6' fill='%233b82f6'/><text x='5' y='23' font-size='20' font-weight='bold' fill='white'>OA</text></svg>">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='6' fill='%2358a6ff'/><text x='5' y='23' font-size='20' font-weight='bold' fill='white'>OA</text></svg>">
 <link rel="stylesheet" href="/style.css">
 </head>
 <body>
 
 <div id="app">
-  <!-- Header -->
-  <header id="header">
-    <div class="header-left">
-      <div class="logo-group">
-        <span class="logo-icon"></span>
-        <span class="logo-text">OfflineAgent</span>
-      </div>
-      <span class="model-pill" id="model-name">--</span>
-      <span class="status-dot" id="status-dot" title="idle"></span>
-    </div>
-    <div class="header-right">
-      <button class="btn-icon" id="btn-clear" title="新对话">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0 0l-4-4m4 4l4-4M4 17v1a2 2 0 002 2h12a2 2 0 002-2v-1"/></svg>
-      </button>
-    </div>
-  </header>
+  <!-- Sidebar Overlay (mobile) -->
+  <div class="sidebar-overlay"></div>
 
-  <!-- Chat area -->
-  <main id="chat">
-    <div id="messages">
-      <div class="message system welcome">
-        <div class="welcome-icon">OA</div>
-        <div class="welcome-text">
-          <strong>OfflineAgent 已就绪</strong>
-          <span>输入 /help 查看可用命令</span>
+  <!-- File Browser Sidebar -->
+  <aside id="sidebar" class="sidebar hidden">
+    <div class="sidebar-header">
+      <span class="sidebar-title">Files</span>
+      <div class="sidebar-actions">
+        <button class="btn-icon" id="btn-sidebar-upload" title="Upload file" onclick="document.getElementById('file-input').click()">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+        </button>
+        <button class="btn-icon" id="btn-sidebar-close" title="Close">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6L6 18M6 6l12 12"/></svg>
+        </button>
+      </div>
+    </div>
+
+    <!-- Upload zone -->
+    <div class="upload-zone" id="sidebar-upload-zone" onclick="document.getElementById('file-input').click()">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-bottom:4px;opacity:0.7"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+      <br>Drop files here or click
+    </div>
+
+    <div class="sidebar-breadcrumb" id="sidebar-breadcrumb"></div>
+    <div class="sidebar-list" id="sidebar-list"></div>
+
+    <!-- Preview panel (dynamic) -->
+    <div class="sidebar-preview" id="sidebar-preview">
+      <div class="preview-header">
+        <span id="preview-title">Preview</span>
+        <button class="btn-icon" id="btn-preview-close" title="Close" style="width:22px;height:22px">&times;</button>
+      </div>
+      <div class="preview-content" id="preview-content"></div>
+    </div>
+  </aside>
+
+  <!-- Main chat area -->
+  <div class="main-panel">
+    <!-- Header -->
+    <header id="header">
+      <div class="header-left">
+        <button class="btn-icon" id="btn-files" title="Toggle file browser">
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"/></svg>
+        </button>
+        <span class="model-pill" id="model-name">--</span>
+        <span class="status-dot" id="status-dot" title="idle"></span>
+      </div>
+      <div class="header-right">
+        <button class="btn-icon" id="btn-clear" title="New chat">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0 0l-4-4m4 4l4-4M4 17v1a2 2 0 002 2h12a2 2 0 002-2v-1"/></svg>
+        </button>
+      </div>
+    </header>
+
+    <!-- Chat -->
+    <main id="chat">
+      <div id="messages">
+        <div class="message system welcome">
+          <div class="welcome-icon">OA</div>
+          <div class="welcome-text">
+            <strong>OfflineAgent</strong>
+            <span>Type /help for commands &middot; Click folder icon for files</span>
+          </div>
         </div>
       </div>
-    </div>
-  </main>
+    </main>
 
-  <!-- Input area -->
-  <footer id="input-area">
-    <div class="input-wrapper">
-      <textarea
-        id="user-input"
-        placeholder="输入消息... (Enter 发送, Shift+Enter 换行)"
-        rows="1"
-        autofocus
-      ></textarea>
-      <button id="btn-send" class="btn-send" title="发送">
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
-      </button>
-      <button id="btn-stop" class="btn-stop" title="终止生成" hidden>
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><rect x="4" y="4" width="16" height="16" rx="2"/></svg>
-      </button>
-    </div>
-    <div class="input-hint">Ctrl+L 清空 · /help 查看命令</div>
-  </footer>
+    <!-- Input area -->
+    <footer id="input-area">
+      <!-- Upload chips (dynamic) -->
+      <div id="upload-chips" class="upload-preview-bar"></div>
+
+      <div class="input-wrapper">
+        <textarea
+          id="user-input"
+          placeholder="Send a message..."
+          rows="1"
+          autofocus
+        ></textarea>
+        <div class="input-actions">
+          <input type="file" id="file-input" multiple hidden
+            accept=".jpg,.jpeg,.png,.gif,.webp,.bmp,.svg,.ico,.txt,.sql,.md,.py,.js,.ts,.jsx,.tsx,.json,.xml,.yaml,.yml,.toml,.ini,.cfg,.conf,.csv,.log,.html,.css,.scss,.less,.java,.kt,.swift,.rs,.go,.c,.cpp,.h,.hpp,.sh,.bat,.ps1,.rb,.php,.lua,.r,.m,.env,.gitignore,.docx,.xlsx,.pptx,.pdf">
+          <button class="btn-icon btn-attach" id="btn-attach" title="Attach file">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66l-9.2 9.19a2 2 0 01-2.83-2.83l8.49-8.48"/></svg>
+          </button>
+          <button id="btn-send" class="btn-send" title="Send">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
+          </button>
+          <button id="btn-stop" class="btn-stop" title="Stop" hidden>
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><rect x="4" y="4" width="16" height="16" rx="2"/></svg>
+          </button>
+        </div>
+      </div>
+      <div class="input-hint">Ctrl+L clear &middot; /help for commands</div>
+    </footer>
+  </div>
 </div>
 
 <script src="/app.js"></script>

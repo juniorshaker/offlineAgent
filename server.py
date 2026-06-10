@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+﻿#!/usr/bin/env python3
 """
 server.py - OfflineAgent Web Server
 
@@ -347,6 +347,123 @@ class AgentHandler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(_json.dumps(status, ensure_ascii=False).encode("utf-8"))
 
+
+    def _handle_api_files(self, parsed):
+        """Handle GET /api/files?path=... or /api/files?read=..."""
+        from urllib.parse import parse_qs
+        from Offlineagent.tool_layer.file_handler import list_directory, read_file_content
+        qs = parse_qs(parsed.query)
+        dir_path = qs.get("path", [None])[0]
+        read_path = qs.get("read", [None])[0]
+        if read_path:
+            result = read_file_content(read_path)
+            self.send_response(200 if result.get("type") != "error" else 404)
+            self.send_header("Content-Type", "application/json")
+            self._send_cors()
+            self.end_headers()
+            self.wfile.write(_json.dumps(result, ensure_ascii=False).encode("utf-8"))
+            return
+        result = list_directory(dir_path) if dir_path else list_directory("/")
+        self.send_response(200 if "error" not in result else 404)
+        self.send_header("Content-Type", "application/json")
+        self._send_cors()
+        self.end_headers()
+        self.wfile.write(_json.dumps(result, ensure_ascii=False).encode("utf-8"))
+
+    def _handle_api_upload(self):
+        """Handle POST /api/upload - JSON or multipart file upload."""
+        from Offlineagent.tool_layer.file_handler import read_file_content, ALL_SUPPORTED
+        import tempfile, re, os as _os
+
+        content_type = self.headers.get("Content-Type", "")
+
+        # JSON mode: {"path": "C:\\path\\to\\file.txt"}
+        if "application/json" in content_type:
+            content_length = int(self.headers.get("Content-Length", 0))
+            body = self.rfile.read(content_length)
+            try:
+                data = _json.loads(body)
+                file_path = data.get("path", "")
+                if not file_path:
+                    self._send_json_error(400, "Missing path field")
+                    return
+                result = read_file_content(file_path)
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self._send_cors()
+                self.end_headers()
+                self.wfile.write(_json.dumps(result, ensure_ascii=False).encode("utf-8"))
+            except Exception as e:
+                self._send_json_error(400, str(e))
+            return
+
+        # Multipart mode
+        if "multipart/form-data" not in content_type:
+            self._send_json_error(400, "Expected multipart/form-data or application/json")
+            return
+
+        boundary = None
+        for part in content_type.split(";"):
+            part = part.strip()
+            if part.startswith("boundary="):
+                boundary = part[9:].strip("\"")
+                break
+        if not boundary:
+            self._send_json_error(400, "No boundary in Content-Type")
+            return
+
+        content_length = int(self.headers.get("Content-Length", 0))
+        raw = self.rfile.read(content_length)
+        boundary_bytes = ("--" + boundary).encode("utf-8")
+
+        parts = raw.split(boundary_bytes)[1:]
+        for part in parts:
+            if part.startswith(b"--"):
+                break
+            part = part.lstrip(b"\r\n").rstrip(b"\r\n--")
+            if not part:
+                continue
+            header_end = part.find(b"\r\n\r\n")
+            if header_end == -1:
+                continue
+            headers_raw = part[:header_end].decode("utf-8", errors="replace")
+            body_bytes = part[header_end + 4:]
+            filename = None
+            for hline in headers_raw.split("\r\n"):
+                if "filename=" in hline:
+                    fname_match = re.search(r"filename=\"([^\"]*)\"", hline)
+                    if fname_match:
+                        filename = fname_match.group(1)
+                    break
+            if not filename or not body_bytes:
+                continue
+            ext = _os.path.splitext(filename)[1].lower()
+            if ext not in ALL_SUPPORTED:
+                self._send_json_error(400, f"Unsupported file type: {ext}")
+                return
+            with tempfile.NamedTemporaryFile(suffix=ext, delete=False) as tmp:
+                tmp.write(body_bytes)
+                tmp_path = tmp.name
+            try:
+                result = read_file_content(tmp_path)
+                result["filename"] = filename
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self._send_cors()
+                self.end_headers()
+                self.wfile.write(_json.dumps(result, ensure_ascii=False).encode("utf-8"))
+            finally:
+                _os.unlink(tmp_path)
+            return
+        self._send_json_error(400, "No file found in upload")
+
+    def _send_json_error(self, code: int, message: str):
+        self.send_response(code)
+        self.send_header("Content-Type", "application/json")
+        self._send_cors()
+        self.end_headers()
+        self.wfile.write(_json.dumps({"error": message}, ensure_ascii=False).encode("utf-8"))
+
     def do_OPTIONS(self):
         self.send_response(204)
         self._send_cors()
@@ -358,6 +475,8 @@ class AgentHandler(BaseHTTPRequestHandler):
 
         if path == "/api/status":
             self._handle_api_status()
+        elif path == "/api/files":
+            self._handle_api_files(parsed)
         else:
             self._serve_static(path)
 
@@ -367,6 +486,8 @@ class AgentHandler(BaseHTTPRequestHandler):
 
         if path == "/api/chat":
             self._handle_api_chat()
+        elif path == "/api/upload":
+            self._handle_api_upload()
         else:
             self.send_response(404)
             self.end_headers()
