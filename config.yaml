@@ -22,6 +22,7 @@ agent:
   max_tokens_estimate: 128000
   tool_budget_ratio: 0.9
   cycle_detection: true
+  max_tool_iterations: 50
   system_prompt_extra: ""
 
   compression:

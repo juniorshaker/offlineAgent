@@ -151,37 +151,52 @@ def _log(msg: str, level: str = "INFO", req_id: str = ""):
 
 
 def _llm_call_with_timeout(llm_fn, messages, timeout_sec: int, req_id: str = "") -> str:
-    """Call LLM with a timeout. Returns error string on timeout.
+    """Call LLM with timeout and exponential-backoff retry.
 
-    Uses a daemon thread so the main thread can detect timeout and
-    mark the request as cancelled. This prevents hanging when the
-    LLM server is slow or unresponsive.
+    Retries: up to 2 additional attempts on timeout (1s, 2s backoff).
+    Connection errors and timeouts trigger retry; other errors return immediately.
     """
-    result_container = {"response": None, "error": None, "done": False}
+    last_error = None
 
-    def _call():
-        try:
-            result_container["response"] = llm_fn(messages)
-        except Exception as e:
-            result_container["error"] = str(e)
-        finally:
-            result_container["done"] = True
+    for attempt in range(3):  # 1 initial + 2 retries
+        if attempt > 0:
+            backoff = 2 ** (attempt - 1)  # 1s, 2s
+            _log(f"LLM retry {attempt}/{2}, waiting {backoff}s...", "WARN", req_id)
+            time.sleep(backoff)
 
-    thread = threading.Thread(target=_call, daemon=True)
-    thread.start()
-    thread.join(timeout=timeout_sec)
+        result_container = {"response": None, "error": None, "done": False}
 
-    if not result_container["done"]:
-        _log(f"LLM call timed out after {timeout_sec}s", "WARN", req_id)
-        with _cancel_lock:
-            _cancel_flags.pop(req_id, None)
-        return f"[Timeout] LLM did not respond within {timeout_sec} seconds."
+        def _call():
+            try:
+                result_container["response"] = llm_fn(messages)
+            except Exception as e:
+                result_container["error"] = str(e)
+            finally:
+                result_container["done"] = True
 
-    if result_container["error"]:
-        _log(f"LLM call failed: {result_container['error']}", "ERROR", req_id)
-        return f"[LLM Error] {result_container['error']}"
+        thread = threading.Thread(target=_call, daemon=True)
+        thread.start()
+        thread.join(timeout=timeout_sec)
 
-    return result_container["response"] or ""
+        if not result_container["done"]:
+            _log(f"LLM call timed out after {timeout_sec}s (attempt {attempt + 1}/3)", "WARN", req_id)
+            last_error = f"[Timeout] LLM did not respond within {timeout_sec} seconds."
+            continue  # retry
+
+        if result_container["error"]:
+            err_str = result_container["error"]
+            _log(f"LLM call failed: {err_str}", "ERROR", req_id)
+            if any(kw in err_str.lower() for kw in ("timeout", "connection", "connect", "read timed out")):
+                last_error = f"[LLM Error] {err_str}"
+                continue  # retry
+            return f"[LLM Error] {err_str}"
+
+        return result_container["response"] or ""
+
+    # All retries exhausted
+    with _cancel_lock:
+        _cancel_flags.pop(req_id, None)
+    return last_error or "[LLM Error] Unknown failure after retries"
 
 
 def _is_cancelled(req_id: str) -> bool:
@@ -299,9 +314,16 @@ def run_tool_loop(messages: list[dict], system_prompt: str, state: StateManager,
     """
     llm_fn = _server_state["llm_chat_fn"]
     llm_timeout = config.get("llm", {}).get("timeout", 60)
+    base_timeout = llm_timeout
+
+    def _dynamic_timeout(msg_count: int) -> int:
+        extra = (msg_count // 10) * 5
+        return min(base_timeout + extra, 180)
+
     agent_cfg = config.get("agent", {})
     budget_ratio = agent_cfg.get("tool_budget_ratio", 0.9)
     cycle_detection = agent_cfg.get("cycle_detection", True)
+    max_iterations = agent_cfg.get("max_tool_iterations", 50)
 
     iterations = 0
     final_parts = []
@@ -356,6 +378,44 @@ def run_tool_loop(messages: list[dict], system_prompt: str, state: StateManager,
                 break
 
             iterations += 1
+            # Safety valve: max iterations reached => force final answer
+            if iterations >= max_iterations:
+                _log(
+                    "Max iterations reached ({}), forcing final response".format(max_iterations),
+                    "WARN", req_id,
+                )
+                if status_callback:
+                    status_callback("status", {
+                        "text": "Max iterations reached, generating final response...",
+                        "type": "warn",
+                    })
+                force_msg = (
+                    "[SYSTEM] Maximum tool iterations ({}) reached. ".format(max_iterations)
+                    + "Respond DIRECTLY to the user NOW. Do NOT make any more tool calls. "
+                    + "Summarize findings and provide your best answer."
+                )
+                state.messages.append({"role": "user", "content": force_msg})
+                messages = state.get_history_for_api(system_prompt)
+                t0 = time.time()
+                response = _llm_call_with_timeout(llm_fn, messages, llm_timeout, req_id)
+                # using dynamic timeout based on context size
+                elapsed = time.time() - t0
+                resp_len = len(response) if response else 0
+                _log(
+                    "Max-iter forced response in {:.1f}s: {} chars".format(elapsed, resp_len),
+                    req_id=req_id,
+                )
+                if (
+                    response
+                    and not response.startswith("[Timeout]")
+                    and not response.startswith("[LLM Error]")
+                ):
+                    final_parts.append(response)
+                else:
+                    final_parts.append(
+                        "[Note: Max iterations reached. Unable to generate final response.]"
+                    )
+                break
             _log(
                 "Tool loop iteration {}, budget={:.1%}, messages={}".format(
                     iterations, usage, len(messages)
@@ -395,6 +455,17 @@ def run_tool_loop(messages: list[dict], system_prompt: str, state: StateManager,
 
             if response.startswith("[Timeout]") or response.startswith("[LLM Error]"):
                 _log("LLM error response: {}".format(response[:100]), "ERROR", req_id)
+                # Preserve collected partial results instead of discarding them
+                if final_parts:
+                    _log(
+                        "Preserving {} partial text parts despite LLM error".format(len(final_parts)),
+                        "WARN", req_id,
+                    )
+                    partial = "\n\n".join(p for p in final_parts if p)
+                    partial += "\n\n---\n*[Note: LLM request failed ({}). Partial results shown above.]*".format(
+                        response[:80]
+                    )
+                    return partial
                 return response
 
             if not has_tc:
