@@ -10,6 +10,7 @@
   const messagesEl = document.getElementById('messages');
   const inputEl = document.getElementById('user-input');
   const sendBtn = document.getElementById('btn-send');
+  const stopBtn = document.getElementById('btn-stop');
   const clearBtn = document.getElementById('btn-clear');
   const statusDot = document.getElementById('status-dot');
   const modelNameEl = document.getElementById('model-name');
@@ -17,6 +18,7 @@
 
   let isStreaming = false;
   let currentAgentMsg = null;
+  let abortController = null;
 
   // -- Init --
   fetchStatus();
@@ -25,6 +27,7 @@
   // -- Event listeners --
   sendBtn.addEventListener('click', sendMessage);
   clearBtn.addEventListener('click', clearHistory);
+  stopBtn.addEventListener('click', stopGeneration);
 
   inputEl.addEventListener('keydown', function (e) {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -65,10 +68,13 @@
     currentAgentMsg = addMessage('agent', '');
     currentAgentMsg.classList.add('streaming-cursor');
 
+    abortController = new AbortController();
+
     fetch('/api/chat', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ message: text }),
+      signal: abortController.signal,
     })
       .then(function (response) {
         if (!response.ok) {
@@ -77,6 +83,10 @@
         return readSSE(response);
       })
       .catch(function (err) {
+        if (err.name === 'AbortError') {
+          // User-initiated stop, don't show error
+          return;
+        }
         if (currentAgentMsg) {
           currentAgentMsg.textContent = '';
           currentAgentMsg.classList.remove('streaming-cursor');
@@ -247,7 +257,8 @@
 
   function setStreaming(active) {
     isStreaming = active;
-    sendBtn.disabled = active;
+    sendBtn.hidden = active;
+    stopBtn.hidden = !active;
     inputEl.disabled = active;
 
     if (active) {
@@ -257,6 +268,20 @@
       statusDot.classList.remove('active', 'error');
       statusDot.title = 'idle';
     }
+  }
+
+  function stopGeneration() {
+    if (!isStreaming) return;
+    if (abortController) {
+      abortController.abort();
+      abortController = null;
+    }
+    if (currentAgentMsg) {
+      currentAgentMsg.classList.remove('streaming-cursor');
+      var existing = currentAgentMsg.textContent.trim();
+      currentAgentMsg.textContent = existing ? existing + '\n\n[已终止]' : '[已终止]';
+    }
+    finishStreaming();
   }
 
   function clearHistory() {
