@@ -24,6 +24,7 @@ import uuid
 from pathlib import Path
 from datetime import datetime
 from http.server import HTTPServer, BaseHTTPRequestHandler
+from http.server import ThreadingHTTPServer  # concurrent request support
 from urllib.parse import urlparse, parse_qs
 
 # -- Path setup --
@@ -807,10 +808,22 @@ class AgentHandler(BaseHTTPRequestHandler):
             if len(non_system) >= 4:
                 try:
                     from Offlineagent.memory_layer.memory_summarizer import summarize_conversation
-                    summary = summarize_conversation(non_system, _server_state["llm_chat_fn"])
-                    if summary:
-                        memory_store.add(summary)
-                        _log("Saved memory from previous session")
+                    # Offload memory summarization to background thread
+                    # so HTTP response returns immediately for large conversations
+                    _captured_msgs = list(non_system)
+                    _captured_llm = _server_state["llm_chat_fn"]
+                    _captured_store = memory_store
+                    def _bg_summarize():
+                        try:
+                            from Offlineagent.memory_layer.memory_summarizer import summarize_conversation
+                            _summary = summarize_conversation(_captured_msgs, _captured_llm)
+                            if _summary:
+                                _captured_store.add(_summary)
+                                _log("Saved memory from previous session (bg)")
+                        except Exception as e2:
+                            _log(f"Memory save skipped (bg): {e2}", "WARN")
+                    t = threading.Thread(target=_bg_summarize, daemon=True)
+                    t.start()
                 except Exception as e:
                     _log(f"Memory save skipped: {e}", "WARN")
         _server_state["state"] = None
@@ -830,7 +843,11 @@ class AgentHandler(BaseHTTPRequestHandler):
 
     def _handle_api_chat_list(self):
         """Handle GET /api/chat/list - list saved conversations."""
-        convs = _list_conversations()
+        try:
+            convs = _list_conversations()
+        except Exception as e:
+            _log(f"Failed to list conversations: {e}", "ERROR")
+            convs = []
         self.send_response(200)
         self.send_header("Content-Type", "application/json")
         self._send_cors()
@@ -1181,7 +1198,7 @@ def main():
     host = args.host or server_cfg.get("host", "0.0.0.0")
     port = args.port or server_cfg.get("port", 8999)
 
-    server = HTTPServer((host, port), AgentHandler)
+    server = ThreadingHTTPServer((host, port), AgentHandler)
     # Set a timeout so serve_forever can be interrupted more quickly
     server.timeout = 0.5
 

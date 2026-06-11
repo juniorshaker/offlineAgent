@@ -65,7 +65,11 @@ def _build_skills_index(skills: list[Skill]) -> str:
             use_hint = f" [used {s.use_count}x]" if s.use_count > 0 else ""
             lines.append(f"- **{s.name}**{use_hint}: {s.short_desc}")
 
-    lines.append("\nTo load a skill's full instructions, the user can type `/skill <name>`.")
+    lines.append("\n## Skills vs Tools (IMPORTANT)")
+    lines.append("- **Skills** listed above provide guidance and workflow instructions. They are NOT tools -- do NOT invoke them via <tool_call>.")
+    lines.append("- To get a skill's full instructions, output: /skill <name> as a normal text command.")
+    lines.append("- **Tools** (read_file, write_file, shell, search_code, etc.) are invoked via <tool_call> XML blocks.")
+    lines.append("- If a skill name matches the user's task, recommend it and let the user type /skill <name>.")
     return "\n".join(lines)
 
 

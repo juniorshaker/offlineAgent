@@ -1,0 +1,3 @@
+interface:
+  display_name: "Java Jvm Memory"
+  short_description: "Help with Java Jvm Memory tasks"
