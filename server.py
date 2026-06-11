@@ -256,6 +256,10 @@ def init_agent():
     register_tools(registry, config, base_dir)
     _server_state["registry"] = registry
 
+    # Initialize browser in main thread (Playwright requires main-thread init)
+    browser_init_msg = browser_tools.init_browser(base_dir)
+    _log(browser_init_msg)
+
     _log(f"Agent initialized: {len(skills)} skills, {len(registry.names())} tools")
 
 

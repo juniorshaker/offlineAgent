@@ -42,6 +42,9 @@ class AgentLogger:
     def topic_shift(self, from_topic: str, to_topic: str, user_choice: str):
         self._log("topic_shift", from_topic=from_topic, to_topic=to_topic, choice=user_choice)
 
+    def skill_injected(self, skill_name: str, body_length: int):
+        self._log("skill_injected", skill=skill_name, body_len=body_length)
+
     def status(self) -> dict:
         """Return a status snapshot."""
         elapsed = time.time() - self.start_time

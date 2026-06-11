@@ -272,7 +272,7 @@ def create_llm_chat_fn(config: dict):
             print(f"[INFO] LLM connection OK (status={test_resp.status_code})")
         else:
             print(f"[WARN] LLM responded with status={test_resp.status_code}")
-            body_preview = test_resp.text[:200]
+            body_preview = test_resp.text()[:200] if callable(test_resp.text) else test_resp.text[:200]
             print(f"[WARN] Response preview: {body_preview}")
     except requests.ConnectionError as e:
         print(f"[FAIL] Cannot connect to LLM: {e}")
@@ -298,7 +298,7 @@ def create_llm_chat_fn(config: dict):
             try:
                 body = resp.json()
             except Exception as json_err:
-                raw_text = resp.text[:500] if resp.text else "(empty response)"
+                raw_text = resp.text()[:500] if callable(resp.text) else (resp.text[:500] if resp.text else "(empty response)")
                 return f"[LLM Error] JSON decode failed (HTTP {resp.status_code}): {json_err}. Raw: {raw_text}"
 
             # Handle non-200 status codes
@@ -379,9 +379,53 @@ def register_tools(registry: ToolRegistry, config: dict, base_dir: Path):
             {"path": "Output file name or path", "content": "Content to write"},
         ),
         "web_fetch": (
-            "Make an HTTP GET or POST request",
-            lambda url, method="GET": browser_tools.web_fetch(url, method),
-            {"url": "Target URL", "method": "HTTP method (GET/POST)"},
+        "Make an HTTP GET or POST request",
+        lambda url, method="GET", body="", headers="", timeout=30:
+            browser_tools.web_fetch(url, method, body, headers, timeout),
+        {"url": "Target URL", "method": "HTTP method (GET/POST)",
+         "body": "Request body for POST", "headers": "Optional JSON headers",
+         "timeout": "Timeout in seconds"},
+        ),
+        "browser_navigate": (
+        "Navigate the browser to a URL",
+        lambda url: browser_tools.browser_navigate(url, base_dir),
+        {"url": "URL to navigate to"},
+        ),
+        "browser_screenshot": (
+        "Take a screenshot and save to output/",
+        lambda name="screenshot": browser_tools.browser_screenshot(name, base_dir),
+        {"name": "Screenshot file name (without extension)"},
+        ),
+        "browser_click": (
+        "Click an element by CSS selector",
+        lambda selector: browser_tools.browser_click(selector, base_dir),
+        {"selector": "CSS selector of the element"},
+        ),
+        "browser_type": (
+        "Type text into an input element",
+        lambda selector, text: browser_tools.browser_type(selector, text, base_dir),
+        {"selector": "CSS selector of the input", "text": "Text to type"},
+        ),
+        "browser_get_content": (
+        "Get text content of the current page",
+        lambda selector="", max_length=8000:
+            browser_tools.browser_get_content(selector, max_length, base_dir),
+        {"selector": "Optional CSS selector", "max_length": "Max chars to return"},
+        ),
+        "browser_get_html": (
+        "Get HTML of the current page",
+        lambda selector="": browser_tools.browser_get_html(selector, base_dir),
+        {"selector": "Optional CSS selector"},
+        ),
+        "browser_exec": (
+        "Execute JavaScript in the browser",
+        lambda js: browser_tools.browser_exec(js, base_dir),
+        {"js": "JavaScript code to execute"},
+        ),
+        "browser_status": (
+            "Check if browser automation is available",
+            lambda: browser_tools.browser_status(base_dir),
+            {},
         ),
         "write_docx": (
             "Fill a Word (.docx) template with field values and save",
@@ -472,6 +516,10 @@ def main():
     register_tools(registry, config, base_dir)
 
     # Start chat loop
+
+    # Initialize browser (non-blocking if Playwright not available)
+    browser_init_msg = browser_tools.init_browser(base_dir)
+    print(f"  {browser_init_msg}")
     chat = ChatLoop(
         config=config,
         base_dir=base_dir,

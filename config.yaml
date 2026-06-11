@@ -60,6 +60,14 @@ tools:
     - write_docx
     - write_xlsx
     - write_pptx
+    - browser_navigate
+    - browser_screenshot
+    - browser_click
+    - browser_type
+    - browser_get_content
+    - browser_get_html
+    - browser_exec
+    - browser_status
   shell:
     allowed:
       - mvn
@@ -74,8 +82,14 @@ tools:
   file_write:
     require_confirm: true
   browser:
-    enabled: false
+    enabled: true
     engine: playwright
+    headless: true
+    browsers_path: "./browsers"
+    viewport_width: 1280
+    viewport_height: 720
+    navigation_timeout: 30000
+    screenshot_on_error: true
 
 server:
   host: "0.0.0.0"

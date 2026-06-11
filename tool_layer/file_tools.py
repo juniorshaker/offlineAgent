@@ -42,6 +42,20 @@ def read_file(path: str) -> str:
         return f"[Error] File not found: {p}"
     if not p.is_file():
         return f"[Error] Not a file: {p}"
+
+    # For binary/office/image files, use file_handler for proper extraction
+    ext = p.suffix.lower()
+    _OFFICE_AND_BINARY = {'.docx', '.xlsx', '.pptx', '.pdf', '.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp', '.ico', '.svg'}
+    if ext in _OFFICE_AND_BINARY:
+        from Offlineagent.tool_layer.file_handler import read_file_content
+        result = read_file_content(p)
+        if result.get('type') == 'error':
+            return f"[Error] {result.get('content', 'Unknown error')}"
+        if result.get('type') == 'image':
+            return (f"[Image: {p.name}, {result.get('dimensions', ('?','?'))[0]}x{result.get('dimensions', ('?','?'))[1]}]"
+                    + f"\n{result.get('content', '')}")
+        return result.get('content', f'[No content extracted from {p.name}]')
+
     try:
         content = p.read_text(encoding="utf-8", errors="replace")
         max_len = 50000

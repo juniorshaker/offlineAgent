@@ -31,7 +31,16 @@ AGENT_IDENTITY = """You are OfflineAgent, a portable AI assistant running on an 
 - Think step by step. Break complex tasks into smaller tool calls.
 - **Path access rule**: When the user gives a specific file or directory path, access it directly first. Do not explore layer by layer. Only fall back to step-by-step traversal if the direct access fails.
 - Be concise. Prefer actionable answers over long explanations.
-- Default language: Chinese, but follow the user's language."""
+- Default language: Chinese, but follow the user's language.
+
+## Code Exploration Pattern (CRITICAL)
+When the user asks about code (a method, class, file, or project behavior), follow this exact workflow:
+1. If the user gave a specific file path: use **read_file** directly on that path. Do NOT list_dir first.
+2. If the user gave only a class/method name (no path): use **search_code** to locate it, then read_file.
+3. If the user asked about a Java project: read pom.xml or build.gradle first to understand the structure.
+4. When reading code, always read the FULL file or at least the complete method body. Never stop at listing.
+5. NEVER end a turn with just a list_dir result. After listing, immediately follow up with read_file or search_code.
+6. If you are unsure where to look, use search_code with the class/method name rather than exploring directories one by one."""
 
 
 def _build_skills_index(skills: list[Skill]) -> str:
@@ -83,6 +92,14 @@ def _build_tools_section(config: dict) -> str:
         "read_template": "- **read_template** (path): Read a template file from templates/.",
         "write_output": "- **write_output** (path, content): Write output to the output/ directory.",
         "web_fetch": "- **web_fetch** (url, method): Make an HTTP request (GET or POST).",
+        "browser_navigate": "- **browser_navigate** (url): Navigate the browser to a URL and return page title.",
+        "browser_screenshot": "- **browser_screenshot** (name): Take a screenshot and save to output/.",
+        "browser_click": "- **browser_click** (selector): Click a page element by CSS selector.",
+        "browser_type": "- **browser_type** (selector, text): Type text into an input element.",
+        "browser_get_content": "- **browser_get_content** (selector?, max_length?): Get text content of page or element.",
+        "browser_get_html": "- **browser_get_html** (selector?): Get HTML of page or element.",
+        "browser_exec": "- **browser_exec** (js): Execute JavaScript in the browser.",
+        "browser_status": "- **browser_status**: Check if browser automation is available.",
         "write_docx": "- **write_docx** (path, fields, template_path): Fill a Word template and save.",
         "write_xlsx": "- **write_xlsx** (path, fields, template_path): Fill an Excel template and save.",
         "write_pptx": "- **write_pptx** (path, fields, template_path): Fill a PowerPoint template and save.",

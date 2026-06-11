@@ -201,6 +201,67 @@ class ChatLoop:
 
     # ── Turn handler ──
 
+    # ── Auto skill injector ──
+    _CODE_KEYWORDS = [
+        ("java", "java-development"),
+        (".java", "java-development"),
+        ("maven", "java-development"),
+        ("pom.xml", "java-development"),
+        ("gradle", "java-development"),
+        ("junit", "java-development"),
+        ("spring", "java-development"),
+        ("class ", None),
+        ("method ", None),
+        ("function ", None),
+        ("method(", None),
+        ("function(", None),
+        ("code review", None),
+        ("写代码", None),
+        ("看代码", None),
+        ("读代码", None),
+        ("这段代码", None),
+        ("这个方法", None),
+        ("这个类", None),
+    ]
+
+    def _auto_inject_skill(self, user_input: str):
+        """Detect code-related queries and auto-inject the relevant skill L2."""
+        lower = user_input.lower()
+        target_skill = None
+        for keyword, skill_name in self._CODE_KEYWORDS:
+            if keyword in lower:
+                target_skill = skill_name
+                break
+        if target_skill is None and self.skills:
+            # Fuzzy: try common dev skill names
+            for sn in ["java-development", "python-development"]:
+                for s in self.skills:
+                    if s.name.lower() == sn:
+                        target_skill = s.name
+                        break
+                if target_skill:
+                    break
+        if not target_skill:
+            return
+        found = None
+        for s in self.skills:
+            if s.name.lower() == target_skill.lower():
+                found = s
+                break
+        if not found:
+            return
+        # Don't re-inject if already in recent messages
+        recent = [m.get("content", "") for m in self.state.messages[-5:]]
+        if any(f"[Skill Context: {found.name}]" in c for c in recent):
+            return
+        from ..prompt_layer.skill_loader import get_skill_body
+        body = get_skill_body(found)
+        found.use_count += 1
+        injected = f"[Skill Context: {found.name}]\n\n{body}"
+        self.state.add_assistant_message(injected)
+        if self.logger:
+            self.logger.skill_injected(found.name, len(body))
+
     def _handle_turn(self, user_input: str):
         """Process one conversation turn."""
         if self.logger:
@@ -249,6 +310,9 @@ class ChatLoop:
 
         # ── Add user message to state ──
         self.state.add_user_message(user_input)
+
+        # ── Auto-inject relevant skill L2 ──
+        self._auto_inject_skill(user_input)
 
         # ── Error recovery: pre-check ──
         model = self.config.get("llm", {}).get("model", "")
@@ -301,6 +365,14 @@ class ChatLoop:
 
     def _handle_exit(self):
         memory_cfg = self.config.get("agent", {}).get("memory", {})
+
+        # Close browser if open
+        try:
+            from ..tool_layer.browser_tools import browser_close
+            browser_close()
+            print("  Browser session closed.")
+        except Exception:
+            pass
 
         # Auto-summarize
         if memory_cfg.get("auto_summarize_on_exit", True) and self.memory_store:
