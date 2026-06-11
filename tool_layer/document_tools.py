@@ -58,7 +58,7 @@ def _try_imports(vendor_dir: Path):
 
 _PLACEHOLDER_RE = re.compile(r"\{\{(.+?)\}\}")
 
-_TEXT_EXTS = {".md", ".txt", ".sql", ".json", ".xml", ".yaml", ".yml", ".csv", ".html", ".htm", ".py", ".js", ".ts", ".java"}
+_TEXT_EXTS = {".md", ".txt", ".sql", ".json", ".xml", ".yaml", ".yml", ".csv", ".html", ".htm", ".py", ".js", ".ts", ".java", ".conf", ".cfg", ".properties", ".env", ".ini", ".toml"}
 
 
 def _extract_placeholders(text: str) -> list[str]:
