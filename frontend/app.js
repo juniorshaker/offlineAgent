@@ -362,7 +362,38 @@
     fileInput.value = '';
   }
 
+
+
   function processFiles(fileList) {
+
+  // Upload a binary file (docx/xlsx/pptx/pdf) to server for text extraction
+  var uploadAndParse = function(file) {
+    var fname = file.name;
+    addMessage('system', 'Parsing ' + fname + '...');
+    var formData = new FormData();
+    formData.append('file', file);
+    fetch('/api/upload', { method: 'POST', body: formData })
+      .then(function(resp) { return resp.json(); })
+      .then(function(data) {
+        var content = '';
+        if (data.type === 'office' || data.type === 'pdf') {
+          content = data.content || '';
+        } else if (data.content) {
+          content = typeof data.content === 'string' ? data.content : JSON.stringify(data.content);
+        } else {
+          content = '[Unable to parse ' + fname + ']';
+        }
+        var isImage = false;
+        uploadedFiles.push({ name: fname, content: content, isImage: isImage });
+        renderUploadChips();
+      })
+      .catch(function(err) {
+        addMessage('system', 'Upload failed for ' + fname + ': ' + err.message);
+        uploadedFiles.push({ name: fname, content: '[Upload failed: ' + err.message + ']', isImage: false });
+        renderUploadChips();
+      });
+  };
+
     var SUPPORTED = [
       '.jpg','.jpeg','.png','.gif','.webp','.bmp','.svg','.ico',
       '.txt','.sql','.md','.py','.js','.ts','.jsx','.tsx',
@@ -391,7 +422,13 @@
       if (/^\.(jpg|jpeg|png|gif|webp|bmp|svg|ico)$/i.test(ext)) {
         reader.readAsDataURL(file);
       } else {
-        reader.readAsText(file, 'UTF-8');
+        // Binary formats: upload to server for proper text extraction
+        var isBinary = /^\.(docx|xlsx|pptx|pdf)$/i.test(ext);
+        if (isBinary) {
+          uploadAndParse(file);
+        } else {
+          reader.readAsText(file, 'UTF-8');
+        }
       }
     }
   }
