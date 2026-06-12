@@ -240,57 +240,130 @@ def _parse_nested(lines: list) -> dict:
 
 # -- LLM Client --
 
-def create_llm_chat_fn(config: dict):
+def create_llm_chat_fn(config: dict, logger=None):
     """Create a closure that calls the configured LLM API.
 
-    Returns a function: messages -> response_text
+    Supports two config formats:
+    1. Multi-backend: llm.primary / llm.secondary with llm.active
+    2. Legacy flat: llm.url / llm.model (auto-converted to default backend)
+
+    Returns: (chat_fn, switch_backend_fn, get_active_model_fn, list_backends_fn)
     """
     llm_cfg = config.get("llm", {})
-    url = llm_cfg.get("url", "")
-    model = llm_cfg.get("model", "Qwen3")
-    timeout = llm_cfg.get("timeout", 60)
-    extra_headers = llm_cfg.get("extra_headers", {})
 
-    if not url:
-        print("[WARN] LLM URL not configured. Using echo mode.")
+    # -- Detect config format and build backend dict --
+    if "primary" in llm_cfg:
+        # Multi-backend format
+        backends = {}
+        for name in ("primary", "secondary"):
+            if name in llm_cfg:
+                be = llm_cfg[name]
+                backends[name] = {
+                    "url": be.get("url", ""),
+                    "model": be.get("model", "unknown"),
+                    "timeout": be.get("timeout", 60),
+                    "api_key": be.get("api_key", ""),
+                }
+        active = llm_cfg.get("active", "primary")
+        if active not in backends:
+            print(f"[WARN] active backend '{active}' not found, using first available")
+            active = next(iter(backends.keys()))
+    else:
+        # Legacy flat format -- auto-convert
+        backends = {
+            "default": {
+                "url": llm_cfg.get("url", ""),
+                "model": llm_cfg.get("model", "Qwen3"),
+                "timeout": llm_cfg.get("timeout", 60),
+                "api_key": llm_cfg.get("api_key", ""),
+            }
+        }
+        active = "default"
+        # Update config in-place so downstream code sees consistent structure
+        config["llm"] = {
+            "active": "default",
+            "default": backends["default"],
+        }
 
+    # -- Validate we have at least one backend --
+    if not backends:
+        print("[WARN] No LLM backends configured. Using echo mode.")
         def _echo(messages):
             if not messages:
                 return "[Echo mode] No messages received."
             last_msg = messages[-1]
             last = last_msg.get("content", str(last_msg)) if isinstance(last_msg, dict) else str(last_msg)
             return f"[Echo mode] Received {len(messages)} messages. Last: {last[:200]}"
-        return _echo
+        return _echo, lambda name: "No backends configured", lambda: "echo", lambda: "No backends"
 
-    # Connection test on startup
-    print(f"[INFO] Testing LLM connection: {url} (model={model})...")
-    try:
-        test_data = {"model": model, "messages": [{"role": "user", "content": "hi"}]}
-        test_resp = requests.post(url, headers={"Content-Type": "application/json", **extra_headers},
-                               json=test_data, timeout=min(timeout, 15))
-        if test_resp.status_code == 200:
-            print(f"[INFO] LLM connection OK (status={test_resp.status_code})")
-        else:
-            print(f"[WARN] LLM responded with status={test_resp.status_code}")
-            body_preview = test_resp.text()[:200] if callable(test_resp.text) else test_resp.text[:200]
-            print(f"[WARN] Response preview: {body_preview}")
-    except requests.ConnectionError as e:
-        print(f"[FAIL] Cannot connect to LLM: {e}")
-        print(f"[FAIL] URL: {url}")
-        print(f"[FAIL] Check: (1) network/VPN (2) firewall (3) config.yaml llm.url")
-    except Exception as e:
-        print(f"[FAIL] LLM connection test failed: {e}")
+    # -- Connection test on startup against the active backend --
+    be = backends[active]
+    url = be["url"]
+    model = be["model"]
+    api_key = be["api_key"]
+    timeout = be["timeout"]
+
+    if url:
+        print(f"[INFO] Testing LLM connection: {url} (backend={active}, model={model})...")
+        try:
+            headers = {"Content-Type": "application/json"}
+            if api_key:
+                headers["Authorization"] = f"Bearer {api_key}"
+            test_data = {"model": model, "messages": [{"role": "user", "content": "hi"}]}
+            test_resp = requests.post(url, headers=headers,
+                                    json=test_data, timeout=min(timeout, 15))
+            if test_resp.status_code == 200:
+                print(f"[INFO] LLM connection OK (status={test_resp.status_code})")
+            else:
+                print(f"[WARN] LLM responded with status={test_resp.status_code}")
+                body_preview = test_resp.text()[:200] if callable(test_resp.text) else test_resp.text[:200]
+                print(f"[WARN] Response preview: {body_preview}")
+        except requests.ConnectionError as e:
+            print(f"[FAIL] Cannot connect to LLM: {e}")
+            print(f"[FAIL] URL: {url}")
+            print(f"[FAIL] Check: (1) network/VPN (2) firewall (3) config.yaml llm.{active}.url")
+        except Exception as e:
+            print(f"[FAIL] LLM connection test failed: {e}")
+    else:
+        print(f"[WARN] Backend '{active}' has no URL. Using echo mode.")
+
+    # -- Mutable state for active backend --
+    _active = active
+
+    def _get_active_model():
+        return backends[_active]["model"]
+
+    def _switch_backend(name: str) -> str:
+        nonlocal _active
+        if name not in backends:
+            return f"Unknown backend: {name}. Available: {', '.join(backends.keys())}"
+        _active = name
+        be = backends[name]
+        return f"Switched to backend: {name} ({be['model']} @ {be['url']})"
+
+    def _list_backends() -> str:
+        lines = []
+        for name, be in backends.items():
+            marker = " <- active" if name == _active else ""
+            lines.append(f"  {name}: {be['model']} @ {be['url']}{marker}")
+        return "\n".join(lines)
 
     def _llm_chat(messages: list[dict]) -> str:
         """Send messages to LLM and return response text."""
-        headers = {
-            "Content-Type": "application/json",
-            **extra_headers,
-        }
-        data = {
-            "model": model,
-            "messages": messages,
-        }
+        be = backends[_active]
+        url = be["url"]
+        model = be["model"]
+        api_key = be["api_key"]
+        timeout = be["timeout"]
+
+        if not url:
+            return f"[Echo mode] Backend '{_active}' has no URL. Received {len(messages)} messages."
+
+        headers = {"Content-Type": "application/json"}
+        if api_key:
+            headers["Authorization"] = f"Bearer {api_key}"
+
+        data = {"model": model, "messages": messages}
 
         try:
             resp = requests.post(url, headers=headers, json=data, timeout=timeout)
@@ -323,7 +396,13 @@ def create_llm_chat_fn(config: dict):
         except Exception as e:
             return f"[LLM Error] {e}"
 
-    return _llm_chat
+    # Attach helpers for external access
+    _llm_chat.switch_backend = _switch_backend
+    _llm_chat.list_backends = _list_backends
+    _llm_chat.get_active_model = _get_active_model
+    _llm_chat.get_active = lambda: _active
+
+    return _llm_chat, _switch_backend, _get_active_model, _list_backends
 
 
 # -- Tool registration --
@@ -496,7 +575,7 @@ def main():
         print("  (Using cached prompt)")
 
     # Create LLM client
-    llm_chat_fn = create_llm_chat_fn(config)
+    llm_chat_fn, switch_backend_fn, get_active_model_fn, list_backends_fn = create_llm_chat_fn(config, logger)
 
     # Initialize state
     agent_cfg = config.get("agent", {})
@@ -533,6 +612,9 @@ def main():
         state=state,
         tools_registry=registry,
         llm_chat_fn=llm_chat_fn,
+        switch_backend_fn=switch_backend_fn,
+        get_active_model_fn=get_active_model_fn,
+        list_backends_fn=list_backends_fn,
         memory_store=memory_store,
         logger=logger,
     )

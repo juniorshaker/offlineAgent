@@ -3,10 +3,22 @@
 # =============================================================================
 
 llm:
-  url: "http://your-internal-api/v1/chat/completions"
-  model: "Qwen3"
-  timeout: 300
-  extra_headers: {}
+  # Which backend to use: "primary" or "secondary"
+  active: primary
+
+  # Primary backend (your existing internal API, no auth) — KEPT AS-IS
+  primary:
+    url: "http://your-internal-api/v1/chat/completions"
+    model: "Qwen3"
+    timeout: 300
+    api_key: ""
+
+  # Secondary backend (OpenAI-compatible API with token auth)
+  secondary:
+    url: "https://api.openai.com/v1/chat/completions"
+    model: "gpt-4"
+    timeout: 120
+    api_key: "sk-your-api-key-here"
 
 skills:
   paths:

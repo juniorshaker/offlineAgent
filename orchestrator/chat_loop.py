@@ -58,6 +58,9 @@ class ChatLoop:
         llm_chat_fn,
         memory_store=None,
         logger=None,
+        switch_backend_fn=None,
+        get_active_model_fn=None,
+        list_backends_fn=None,
     ):
         self.config = config
         self.base_dir = base_dir
@@ -66,6 +69,9 @@ class ChatLoop:
         self.state = state
         self.tools = tools_registry
         self.llm_chat_fn = llm_chat_fn
+        self.switch_backend_fn = switch_backend_fn
+        self.get_active_model_fn = get_active_model_fn
+        self.list_backends_fn = list_backends_fn
         self.memory_store = memory_store
         self.logger = logger
         self.running = True
@@ -109,10 +115,25 @@ class ChatLoop:
             self._handle_exit()
             self.running = False
 
+        elif command == "/model":
+            if not self.switch_backend_fn:
+                print("  Backend switching not available.")
+            elif not arg:
+                if self.list_backends_fn:
+                    print("\n  LLM Backends:")
+                    print(self.list_backends_fn())
+                    print("\n  Usage: /model <name>  to switch active backend")
+                else:
+                    print("  No backend info available.")
+            else:
+                result = self.switch_backend_fn(arg)
+                print(f"  {result}")
+
         elif command == "/help":
             print("""
   Built-in commands:
     /help          Show this help
+    /model         Switch LLM backend (e.g. /model primary)
     /skills        List loaded skills
     /skill <name>  Load a skill's full instructions
     /tools         List available tools
@@ -187,14 +208,20 @@ class ChatLoop:
             print("  Conversation history cleared.")
 
         elif command == "/config":
-            llm = self.config.get("llm", {})
-            print(f"""
-  Config Summary
-    LLM URL:   {llm.get('url', 'N/A')}
-    Model:     {llm.get('model', 'N/A')}
-    Max history: {self.config.get('agent', {}).get('max_history', 'N/A')}
-    Max tokens:  {self.config.get('agent', {}).get('max_tokens_estimate', 'N/A')}
-""")
+            print()
+            print("  Config Summary")
+            # Show backends
+            if self.list_backends_fn:
+                backend_list = self.list_backends_fn()
+                print("  LLM Backends:")
+                print(backend_list)
+            else:
+                llm = self.config.get("llm", {})
+                print(f"  LLM URL:   {llm.get('url', 'N/A')}")
+                print(f"  Model:     {llm.get('model', 'N/A')}")
+            print(f"  Max history: {self.config.get('agent', {}).get('max_history', 'N/A')}")
+            print(f"  Max tokens:  {self.config.get('agent', {}).get('max_tokens_estimate', 'N/A')}")
+            print()
 
         else:
             print(f"  Unknown command: {command}. Type /help for list.")
@@ -482,7 +509,7 @@ class ChatLoop:
         self._auto_inject_skill(user_input)
 
         # ── Error recovery: pre-check ──
-        model = self.config.get("llm", {}).get("model", "")
+        model = self.get_active_model_fn() if self.get_active_model_fn else self.config.get("llm", {}).get("model", "")
         messages_for_api = self.state.get_history_for_api(self.system_prompt)
         stripped = check_before_send(model, messages_for_api[1:], self.base_dir / "memory")
         if stripped:

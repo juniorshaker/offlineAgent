@@ -74,6 +74,31 @@ _CONV_DIR = _AGENT_DIR / "memory" / "conversations"
 _CONV_DIR.mkdir(parents=True, exist_ok=True)
 _conversations: dict[str, dict] = {}  # in-memory index
 
+def _get_active_timeout() -> int:
+    """Get the active backend timeout."""
+    config = _server_state.get("config", {})
+    llm = config.get("llm", {})
+    if "primary" in llm:
+        active = llm.get("active", "primary")
+        return llm.get(active, {}).get("timeout", 60)
+    return llm.get("timeout", 60)
+
+
+def _get_active_model_name() -> str:
+    """Get the active backend model name from config."""
+    fn = _server_state.get("get_active_model_fn")
+    if fn:
+        return fn()
+    config = _server_state.get("config", {})
+    llm = config.get("llm", {})
+    if "primary" in llm:
+        active = llm.get("active", "primary")
+        return llm.get(active, {}).get("model", "unknown")
+    return llm.get("model", "unknown")
+
+
+
+
 def _save_conversation(state) -> str | None:
     """Save current conversation to disk. Returns conversation id."""
     if not state or len(state.messages) <= 1:
@@ -249,8 +274,11 @@ def init_agent():
 
     # LLM client
     _log("Creating LLM client...")
-    llm_chat_fn = create_llm_chat_fn(config)
+    llm_chat_fn, switch_backend_fn, get_active_model_fn, list_backends_fn = create_llm_chat_fn(config)
     _server_state["llm_chat_fn"] = llm_chat_fn
+    _server_state["switch_backend_fn"] = switch_backend_fn
+    _server_state["get_active_model_fn"] = get_active_model_fn
+    _server_state["list_backends_fn"] = list_backends_fn
 
     # Tools
     registry = ToolRegistry()
@@ -280,7 +308,7 @@ def build_messages(system_prompt: str, state: StateManager, user_input: str, con
     """Build the full message list for the LLM API call."""
     state.add_user_message(user_input)
 
-    model = config.get("llm", {}).get("model", "")
+    model = _get_active_model_name()
     messages = state.get_history_for_api(system_prompt)
     _log(f"Messages built: {len(messages)} items", req_id=req_id)
 
@@ -324,7 +352,7 @@ def run_tool_loop(messages: list[dict], system_prompt: str, state: StateManager,
     - Cycle detection: 3 consecutive same-tool+same-param triggers warning
     """
     llm_fn = _server_state["llm_chat_fn"]
-    llm_timeout = config.get("llm", {}).get("timeout", 60)
+    llm_timeout = _get_active_timeout()
     base_timeout = llm_timeout
 
     def _dynamic_timeout(msg_count: int) -> int:
@@ -338,7 +366,7 @@ def run_tool_loop(messages: list[dict], system_prompt: str, state: StateManager,
 
     iterations = 0
     final_parts = []
-    model = config.get("llm", {}).get("model", "unknown")
+    model = _get_active_model_name()
     recent_tool_calls: list[tuple[str, str]] = []
 
     try:
@@ -900,7 +928,7 @@ class AgentHandler(BaseHTTPRequestHandler):
         status = state.status_summary(_server_state["system_prompt"])
         status["skills_count"] = len(skills)
         status["tools"] = registry.names()
-        status["model"] = config.get("llm", {}).get("model", "unknown")
+        status["model"] = _get_active_model_name()
         status["llm_url"] = config.get("llm", {}).get("url", "unknown")
 
         self.send_response(200)
@@ -1136,7 +1164,7 @@ def _handle_web_command(cmd: str, state: StateManager, req_id: str = "") -> str:
         return (
             f"Tokens: {status['tokens_estimate']}/{status['max_tokens']} ({status['usage_percent']}%), "
             f"Turns: {status['turns']}/{status['max_history']}, "
-            f"Model: {_server_state['config'].get('llm', {}).get('model', 'unknown')}"
+            f"Model: {_get_active_model_name()}"
         )
 
     elif command == "/logs":
@@ -1156,7 +1184,7 @@ def _handle_web_command(cmd: str, state: StateManager, req_id: str = "") -> str:
 
     elif command == "/config":
         llm = _server_state["config"].get("llm", {})
-        return f"Model: {llm.get('model')}, URL: {llm.get('url')}"
+        return f"Model: {_get_active_model_name()}, URL: {llm.get('url')}"
 
     elif command == "/exit":
         memory_store = _server_state["memory_store"]

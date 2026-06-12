@@ -156,7 +156,12 @@ key: value  # inline comment
     assert_true("llm" in cfg, "real config has llm")
     assert_true("tools" in cfg, "real config has tools")
     assert_true("agent" in cfg, "real config has agent")
-    assert_eq(cfg.get("llm", {}).get("model"), "Qwen3", "real config model")
+    # Multi-backend config: check primary backend's model
+    llm_cfg = cfg.get("llm", {})
+    if "primary" in llm_cfg:
+        assert_eq(llm_cfg.get("primary", {}).get("model"), "Qwen3", "real config model (multi-backend)")
+    else:
+        assert_eq(llm_cfg.get("model"), "Qwen3", "real config model (legacy)")
 
 
 # ============================================================================
@@ -1074,6 +1079,210 @@ def test_batch_tool_prompt():
     assert_in("write_pptx", sp, "write_pptx in tool defs")
 
 
+
+
+# ============================================================================
+# 20. Dual LLM Backend
+# ============================================================================
+
+def test_dual_backend_parsing():
+    """Test multi-backend config parsing by create_llm_chat_fn."""
+    _header("20. Dual LLM Backend Parsing")
+    from Offlineagent.agent import create_llm_chat_fn
+
+    # 20.1 Multi-backend config
+    config_multi = {
+        "llm": {
+            "active": "primary",
+            "primary": {
+                "url": "http://internal-api/v1",
+                "model": "Qwen3",
+                "timeout": 300,
+                "api_key": "",
+            },
+            "secondary": {
+                "url": "https://api.openai.com/v1",
+                "model": "gpt-4",
+                "timeout": 120,
+                "api_key": "sk-test",
+            },
+        }
+    }
+    fn, switch, get_model, list_backends = create_llm_chat_fn(config_multi)
+    assert_true(callable(fn), "chat fn is callable")
+    assert_true(callable(switch), "switch fn is callable")
+    assert_true(callable(get_model), "get_model fn is callable")
+    assert_true(callable(list_backends), "list_backends fn is callable")
+    assert_eq(get_model(), "Qwen3", "active model is Qwen3")
+
+    # 20.2 Switch backend
+    result = switch("secondary")
+    assert_in("secondary", result, "switch result mentions secondary")
+    assert_eq(get_model(), "gpt-4", "model changed to gpt-4 after switch")
+
+    # 20.3 Switch to unknown backend
+    result = switch("nonexistent")
+    assert_in("Unknown", result, "unknown backend returns error")
+
+    # 20.4 Switch back to primary
+    result = switch("primary")
+    assert_eq(get_model(), "Qwen3", "model changed back to Qwen3")
+
+    # 20.5 Legacy flat config (backward compatibility)
+    config_legacy = {
+        "llm": {
+            "url": "http://old-api/v1",
+            "model": "old-model",
+            "timeout": 30,
+            "api_key": "",
+        }
+    }
+    fn2, switch2, get_model2, list_backends2 = create_llm_chat_fn(config_legacy)
+    assert_eq(get_model2(), "old-model", "legacy model preserved")
+    # The config should have been auto-converted
+    assert_in("active", config_legacy["llm"], "legacy config auto-converted")
+    assert_eq(config_legacy["llm"]["active"], "default", "legacy active is default")
+
+    # 20.6 List backends
+    backends_str = list_backends()
+    assert_in("primary", backends_str, "list includes primary")
+    assert_in("secondary", backends_str, "list includes secondary")
+    assert_in("<- active", backends_str, "list shows active marker")
+
+    # 20.7 Auth headers (indirect test: verify api_key is stored)
+    config_auth = {
+        "llm": {
+            "active": "primary",
+            "primary": {
+                "url": "http://api/v1",
+                "model": "test",
+                "timeout": 60,
+                "api_key": "sk-secret-123",
+            },
+        }
+    }
+    fn3, _, _, _ = create_llm_chat_fn(config_auth)
+    # The api_key is used inside the closure, we can't directly test headers
+    # but we can verify the function was created without error
+    assert_true(callable(fn3), "auth backend creates without error")
+
+
+def test_backend_chat_fn_behavior():
+    """Test that the chat fn works in echo mode when no URL."""
+    _header("21. Backend Chat Fn Behavior")
+    from Offlineagent.agent import create_llm_chat_fn
+
+    # 21.1 Echo mode when no URL configured
+    config_no_url = {
+        "llm": {
+            "active": "primary",
+            "primary": {
+                "url": "",
+                "model": "test",
+                "timeout": 60,
+                "api_key": "",
+            },
+        }
+    }
+    fn, _, _, _ = create_llm_chat_fn(config_no_url)
+    response = fn([{"role": "user", "content": "hello"}])
+    assert_in("Echo mode", response, "echos when no URL")
+
+    # 21.2 Chat fn returns expected format for echo
+    assert_in("Echo mode", response, "echo mode indicator present")
+    assert_in("1 messages", response, "echo reports message count")
+
+
+def test_model_command_in_chat_loop():
+    """Test /model command in ChatLoop."""
+    _header("22. /model Command in ChatLoop")
+    from Offlineagent.orchestrator.chat_loop import ChatLoop
+    from Offlineagent.orchestrator.state_manager import StateManager
+    from Offlineagent.tool_layer.tool_registry import ToolRegistry
+    from pathlib import Path
+
+    # Set up mock chat loop
+    config = {
+        "llm": {
+            "active": "primary",
+            "primary": {"url": "", "model": "Qwen3", "timeout": 60, "api_key": ""},
+            "secondary": {"url": "", "model": "gpt-4", "timeout": 120, "api_key": "sk-test"},
+        },
+        "agent": {"max_history": 10, "max_tokens_estimate": 8000},
+    }
+
+    def mock_switch(name):
+        if name == "secondary":
+            return "Switched to backend: secondary (gpt-4 @ )"
+        return f"Unknown backend: {name}"
+
+    def mock_get_model():
+        return "Qwen3"
+
+    def mock_list():
+        return "  primary: Qwen3 @  <- active\n  secondary: gpt-4 @ "
+
+    state = StateManager(max_history=10, max_tokens=1000)
+    registry = ToolRegistry()
+
+    chat = ChatLoop(
+        config=config,
+        base_dir=Path("."),
+        system_prompt="You are helpful.",
+        skills=[],
+        state=state,
+        tools_registry=registry,
+        llm_chat_fn=lambda msgs: "ok",
+        switch_backend_fn=mock_switch,
+        get_active_model_fn=mock_get_model,
+        list_backends_fn=mock_list,
+        memory_store=None,
+        logger=None,
+    )
+
+    # 22.1 ChatLoop has new attributes
+    assert_true(chat.switch_backend_fn is not None, "has switch_backend_fn")
+    assert_true(chat.get_active_model_fn is not None, "has get_active_model_fn")
+    assert_true(chat.list_backends_fn is not None, "has list_backends_fn")
+
+    # 22.2 /config shows backend info
+    chat._handle_command("/config")
+    # Visual output test - we trust it doesn't crash
+
+    # 22.3 /model without switch fn (fallback)
+    chat2 = ChatLoop(
+        config=config,
+        base_dir=Path("."),
+        system_prompt="You are helpful.",
+        skills=[],
+        state=StateManager(max_history=10, max_tokens=1000),
+        tools_registry=ToolRegistry(),
+        llm_chat_fn=lambda msgs: "ok",
+        switch_backend_fn=None,
+        get_active_model_fn=None,
+        list_backends_fn=None,
+        memory_store=None,
+        logger=None,
+    )
+    chat2._handle_command("/model")
+    # Should not crash
+
+
+def test_server_backend_integration():
+    """Test that server.py references the new helpers."""
+    _header("23. Server Backend Integration")
+    from pathlib import Path
+
+    server_path = Path(__file__).resolve().parent.parent / "server.py"
+    with open(server_path, "r", encoding="utf-8") as f:
+        src = f.read()
+
+    assert_in("switch_backend_fn", src, "server stores switch_backend_fn")
+    assert_in("get_active_model_fn", src, "server stores get_active_model_fn")
+    assert_in("list_backends_fn", src, "server stores list_backends_fn")
+    assert_in("_get_active_model_name", src, "server has _get_active_model_name helper")
+    assert_in("_get_active_timeout", src, "server has _get_active_timeout helper")
+
 def run_all():
     print("\n" + "=" * 60)
     print("  OfflineAgent — Complete Test Suite")
@@ -1101,6 +1310,10 @@ def run_all():
         test_document_tools,
         test_frontend_debounce,
         test_batch_tool_prompt,
+        test_dual_backend_parsing,
+        test_backend_chat_fn_behavior,
+        test_model_command_in_chat_loop,
+        test_server_backend_integration,
     ]
 
     for test_fn in tests:
