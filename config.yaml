@@ -53,6 +53,7 @@ tools:
     - write_file
     - list_dir
     - search_code
+    - find_files
     - shell
     - read_template
     - write_output
@@ -78,6 +79,8 @@ tools:
       - pip
       - npm
       - docker
+      - ssh
+      - scp
     require_confirm: true
   file_write:
     require_confirm: true

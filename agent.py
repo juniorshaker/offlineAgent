@@ -363,6 +363,11 @@ def register_tools(registry: ToolRegistry, config: dict, base_dir: Path):
             lambda pattern, path: file_tools.search_code(pattern, path),
             {"pattern": "Search pattern", "path": "Search root path"},
         ),
+        "find_files": (
+            "Recursively find files matching a name pattern like '*.yml' or 'Dockerfile'",
+            lambda pattern, path: file_tools.find_files(pattern, path),
+            {"pattern": "Glob pattern (e.g. '*.yml', 'application*.properties')", "path": "Search root path"},
+        ),
         "shell": (
             "Execute a shell command (whitelist enforced)",
             lambda command: shell_tools.shell(command, allowed_commands=shell_allowed),

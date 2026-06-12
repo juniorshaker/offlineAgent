@@ -157,3 +157,42 @@ def search_code(pattern: str, path: str = ".") -> str:
     if not results:
         return f"[No matches] for '{pattern}' in {p}"
     return "\n".join(results)
+
+
+def find_files(pattern: str, path: str = ".") -> str:
+    """Recursively find files matching a glob pattern.
+
+    Use this to locate config files, property files, or any file by name pattern
+    deep inside directory trees. Examples:
+      find_files(pattern="*.yml", path=".")          -- find all YAML files
+      find_files(pattern="application*.properties")  -- find Spring config files
+      find_files(pattern="Dockerfile")               -- find Dockerfiles
+    """
+    p = _resolve_safe(path)
+    if not p.exists():
+        return f"[Error] Path not found: {p}"
+
+    from fnmatch import fnmatch
+    results = []
+    try:
+        for root, dirs, files in os.walk(p):
+            dirs[:] = [d for d in dirs if not d.startswith(".") and d not in ("node_modules", "__pycache__", ".git", "vendor", ".idea")]
+            for fname in files:
+                if fnmatch(fname, pattern):
+                    full_path = Path(root) / fname
+                    try:
+                        size = full_path.stat().st_size
+                        size_str = f" ({size:,} bytes)"
+                    except Exception:
+                        size_str = ""
+                    results.append(f"  {full_path}{size_str}")
+                    if len(results) >= 50:
+                        break
+            if len(results) >= 50:
+                break
+    except PermissionError:
+        return f"[Error] Permission denied in: {p}"
+
+    if not results:
+        return f"[No matches] for pattern '{pattern}' in {p}"
+    return f"Found {len(results)} file(s) matching '{pattern}' in {p}:\n" + "\n".join(results)

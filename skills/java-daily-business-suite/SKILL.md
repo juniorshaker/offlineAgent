@@ -1,13 +1,13 @@
 ---
 name: java-daily-business-suite
-description: Use when the user asks for a comprehensive daily Java code review covering code reading, standards, branch analysis, null safety, and exception debugging in one pass. Triggers on requests like "日常代码审查", "全面代码检查", "帮我review一下代码", "完整分析这段Java代码". This suite combines java-code-reading, java-code-standards, java-branch-analysis, java-null-safety, and java-exception-debugging.
+description: Use when the user asks for a comprehensive daily Java code review covering code reading, standards, branch analysis, null safety, exception debugging, and SQL audit in one pass. Triggers on requests like "日常代码审查", "全面代码检查", "帮我review一下代码", "完整分析这段Java代码". This suite combines java-code-reading, java-code-standards, java-branch-analysis, java-null-safety, java-exception-debugging, and java-sql-audit.
 ---
 
 # Java 日常业务套装
 
 ## Overview
 
-日常业务开发中最常用的五合一分析套装。覆盖从代码逻辑通读到异常排错的全流程，适合日常 Code Review 和新代码提交前的自查。
+日常业务开发中最常用的六合一分析套装。覆盖从代码逻辑通读到 SQL 审计的全流程，适合日常 Code Review 和新代码提交前的自查。
 
 ## Constituent Skills
 
@@ -33,12 +33,18 @@ description: Use when the user asks for a comprehensive daily Java code review c
    - 针对已有异常堆栈进行诊断（如有）
    - 预判潜在异常风险点
 
+6. **java-sql-audit** — SQL 全方位安全与性能审计
+   - 语法/索引/性能/安全四维审计
+   - Explain 执行计划模拟
+   - 支持原生 SQL、MyBatis XML、MyBatis-Plus Wrapper
+
 ## Execution Order
 
 1. 先执行 java-code-reading 获取整体理解
 2. 并行执行 java-code-standards + java-null-safety（两者互不依赖）
 3. 执行 java-branch-analysis（依赖步骤 1 的理解）
-4. 最后执行 java-exception-debugging（如提供异常堆栈则诊断，否则预判风险）
+4. 执行 java-exception-debugging（如提供异常堆栈则诊断，否则预判风险）
+5. 最后执行 java-sql-audit（审计所有涉及的 SQL/数据库操作）
 
 ## Integration Guide
 
@@ -57,15 +63,17 @@ description: Use when the user asks for a comprehensive daily Java code review c
 
 ## 5. 异常分析（java-exception-debugging 输出）
 
+## 6. SQL 审计（java-sql-audit 输出）
+
 ## 总结
 - 发现问题总数：X
-- 必须修复（Error 级）：X
-- 建议修复（Warning 级）：X
-- 可选优化（Suggestion 级）：X
+- 必须修复（Error/严重级）：X
+- 建议修复（Warning/高级）：X
+- 可选优化（Suggestion/建议级）：X
 ```
 
 ## Common Pitfalls
 
 - 各 skill 可能对同一行代码产生不同维度的发现，不要当成重复
+- 如果代码中无 SQL/数据库操作，java-sql-audit 可跳过并注明
 - 如果用户只提供了特定类/方法的代码片段，完整调用链分析会受限
-- 建议先确认待分析代码的边界范围（单个文件/模块/全项目）

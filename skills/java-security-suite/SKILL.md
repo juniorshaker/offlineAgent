@@ -1,13 +1,13 @@
 ---
 name: java-security-suite
-description: Use when the user asks for a comprehensive Java security audit covering code standards, vulnerability scanning, crypto analysis, and null safety. Triggers on requests like "安全审计套装", "全面安全检查", "代码安全+加密审计", "安全规范+漏洞扫描". This suite combines java-code-standards, java-security-audit, java-crypto-audit, and java-null-safety.
+description: Use when the user asks for a comprehensive Java security audit covering code standards, vulnerability scanning, crypto analysis, null safety, and SQL audit. Triggers on requests like "安全审计套装", "全面安全检查", "代码安全+加密审计+SQL审计", "安全规范+漏洞扫描". This suite combines java-code-standards, java-security-audit, java-crypto-audit, java-null-safety, and java-sql-audit.
 ---
 
 # Java 安全审计套装
 
 ## Overview
 
-面向代码安全的四合一分析套装。覆盖编码规范、安全漏洞、加解密审计、空指针扫描四大维度，适合安全评审、上线前安全检查、合规审计。
+面向代码安全的五合一分析套装。覆盖编码规范、安全漏洞、加解密审计、空指针扫描、SQL 安全审计五大维度，适合安全评审、上线前安全检查、合规审计。
 
 ## Constituent Skills
 
@@ -32,11 +32,17 @@ description: Use when the user asks for a comprehensive Java security audit cove
    - 参数边界检查
    - 自动拆箱 NPE 风险
 
+5. **java-sql-audit** — SQL 全方位安全与性能审计
+   - SQL 注入专项检测（${} 替换、动态表名/列名）
+   - 长事务/锁表/死锁隐患
+   - Explain 执行计划模拟
+
 ## Execution Order
 
 1. 先执行 java-code-standards 获取整体规范基线
 2. 并行执行 java-security-audit + java-crypto-audit（安全维度，有交叉但侧重不同）
-3. 最后执行 java-null-safety（非安全问题但常与安全漏洞同行）
+3. 执行 java-null-safety（非安全问题但常与安全漏洞同行）
+4. 最后执行 java-sql-audit（SQL 注入和事务锁是安全审计的关键落地环节）
 
 ## Integration Guide
 
@@ -51,6 +57,8 @@ description: Use when the user asks for a comprehensive Java security audit cove
 
 ## 4. 空指针/边界（java-null-safety 输出）
 
+## 5. SQL 审计（java-sql-audit 输出）
+
 ## 安全总评
 - 安全等级：Critical / High / Medium / Low
 - Critical 漏洞数：X
@@ -62,5 +70,5 @@ description: Use when the user asks for a comprehensive Java security audit cove
 ## Common Pitfalls
 
 - java-security-audit 和 java-crypto-audit 都涉及加密相关检查，以后者专项分析为准
-- java-code-standards 中的安全相关规约（如 SQL 注入检测）与 java-security-audit 可能重叠
+- java-sql-audit 中的 SQL 注入检测比 java-security-audit 更深入，以 SQL 专项为准
 - 安全审计的发现可能涉及业务逻辑层面的判断，需要开发人员确认

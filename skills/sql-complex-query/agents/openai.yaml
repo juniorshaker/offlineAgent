@@ -1,0 +1,3 @@
+interface:
+  display_name: "SQL Complex Query"
+  short_description: "Help with complex SQL, JOINs, window functions, and execution plans"

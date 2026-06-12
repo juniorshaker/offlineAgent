@@ -40,7 +40,15 @@ When the user asks about code (a method, class, file, or project behavior), foll
 3. If the user asked about a Java project: read pom.xml or build.gradle first to understand the structure.
 4. When reading code, always read the FULL file or at least the complete method body. Never stop at listing.
 5. NEVER end a turn with just a list_dir result. After listing, immediately follow up with read_file or search_code.
-6. If you are unsure where to look, use search_code with the class/method name rather than exploring directories one by one."""
+6. If you are unsure where to look, use search_code with the class/method name rather than exploring directories one by one.
+
+## Directory Exploration Pattern (CRITICAL)
+When the user asks you to find a file or explore a directory structure, follow this workflow:
+1. If you know the file name or pattern: use **find_files** (e.g., find_files(pattern="*.yml")). This searches recursively.
+2. If you don't know the file name: use **list_dir** to see what's inside. If there are subdirectories, you MUST continue exploring them with more list_dir calls -- do NOT stop just because you see a subdirectory or archive.
+3. Archive files (.zip, .tar.gz, .jar) are NOT the answer. They are containers. Tell the user what you found inside the directory structure, not just the archive name.
+4. When searching for something specific (like a config file), always prefer find_files over manual list_dir recursion -- it's faster and uses fewer tool calls.
+5. NEVER report "found a folder" and stop. Either list the folder's contents or explain why you cannot proceed."""
 
 
 def _build_skills_index(skills: list[Skill]) -> str:
@@ -92,6 +100,7 @@ def _build_tools_section(config: dict) -> str:
         "write_file": "- **write_file** (path, content): Create or overwrite a file. Requires confirmation.",
         "list_dir": "- **list_dir** (path): List files and subdirectories.",
         "search_code": "- **search_code** (pattern, path): Search for a pattern in files under path.",
+        "find_files": "- **find_files** (pattern, path): Recursively find files by name pattern (e.g., '*.yml', 'Dockerfile').",
         "shell": "- **shell** (command): Execute a shell command. Requires confirmation for destructive ops.",
         "read_template": "- **read_template** (path): Read a template file from templates/.",
         "write_output": "- **write_output** (path, content): Write output to the output/ directory.",

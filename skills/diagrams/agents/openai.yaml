@@ -1,0 +1,3 @@
+interface:
+  display_name: "Diagrams & Architecture"
+  short_description: "Draw flowcharts, architecture diagrams, sequence/ER/state diagrams"
