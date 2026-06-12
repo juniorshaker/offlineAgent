@@ -240,7 +240,7 @@ def _parse_nested(lines: list) -> dict:
 
 # -- LLM Client --
 
-def create_llm_chat_fn(config: dict, logger=None):
+def create_llm_chat_fn(config: dict, logger=None, token_tracker=None):
     """Create a closure that calls the configured LLM API.
 
     Supports two config formats:
@@ -383,7 +383,23 @@ def create_llm_chat_fn(config: dict, logger=None):
             if "choices" in body and len(body["choices"]) > 0:
                 choice = body["choices"][0]
                 msg = choice.get("message", {})
-                return msg.get("content", "")
+                result_text = msg.get("content", "")
+
+                # Capture token usage from API response
+                if token_tracker and "usage" in body:
+                    try:
+                        usage = body["usage"]
+                        token_tracker.record(
+                            backend=_active,
+                            model=model,
+                            prompt_tokens=usage.get("prompt_tokens", 0),
+                            completion_tokens=usage.get("completion_tokens", 0),
+                            total_tokens=usage.get("total_tokens", 0),
+                        )
+                    except Exception:
+                        pass  # Token tracking failure must not affect chat
+
+                return result_text
             elif "response" in body:
                 return body["response"]
             elif "content" in body:

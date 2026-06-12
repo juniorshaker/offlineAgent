@@ -1,4 +1,4 @@
-﻿"""
+"""
 tests/test_all.py — OfflineAgent Complete Test Suite
 
 Covers all critical modules:
@@ -904,9 +904,9 @@ def test_conversation_api_routes():
     html_path = Path(__file__).resolve().parent.parent / "frontend" / "index.html"
     with open(html_path, "r", encoding="utf-8") as f:
         html = f.read()
-    assert_in("history-panel", html, "HTML has history-panel element")
+    assert_in("panel-history", html, "HTML has panel-history element")
     assert_in("history-list", html, "HTML has history-list element")
-    assert_in("btn-history", html, "HTML has btn-history element")
+    assert_in("sidebar-tabs", html, "HTML has sidebar-tabs element")
 
 
 
@@ -1283,6 +1283,120 @@ def test_server_backend_integration():
     assert_in("_get_active_model_name", src, "server has _get_active_model_name helper")
     assert_in("_get_active_timeout", src, "server has _get_active_timeout helper")
 
+
+
+# ============================================================================
+# 24. Token Tracker (v7)
+# ============================================================================
+
+def test_token_tracker():
+    _header('24. Token Tracker (v7)')
+    from Offlineagent.metrics.token_tracker import TokenTracker
+    import tempfile
+
+    with tempfile.TemporaryDirectory() as td:
+        tracker = TokenTracker(td)
+
+        # Record some usage
+        tracker.record('primary', 'Qwen3', 500, 200, 700)
+        tracker.record('primary', 'Qwen3', 300, 150, 450)
+        tracker.record('secondary', 'gpt-4', 1000, 500, 1500)
+
+        # Test backends
+        backends = tracker.get_backends()
+        assert_in('primary', backends, 'primary in backends')
+        assert_in('secondary', backends, 'secondary in backends')
+
+        # Test models
+        models = tracker.get_models(backend='primary')
+        assert_in('Qwen3', models, 'Qwen3 in models')
+        assert_not_in('gpt-4', models, 'gpt-4 not in primary models')
+
+        # Test query
+        data = tracker.query(backend='primary', range='week')
+        assert_true(len(data) > 0, 'query returns data')
+        assert_true(data[0]['total_tokens'] > 0, 'total_tokens > 0')
+
+        # Test summary
+        summary = tracker.total_summary(backend='primary', range='week')
+        assert_true(summary['total_tokens'] > 0, 'summary total_tokens > 0')
+        assert_true(summary['total_calls'] > 0, 'summary total_calls > 0')
+
+        # Test multiple records
+        tracker.record('primary', 'Qwen3', 100, 50, 150)
+        data2 = tracker.query(backend='primary', model='Qwen3', range='week')
+        total = sum(d['total_tokens'] for d in data2)
+        assert_true(total >= 1300, 'total tokens accumulate correctly')
+
+
+# ============================================================================
+# 25. Server API Routes (v7)
+# ============================================================================
+
+def test_server_v7_api_routes():
+    _header('25. Server API Routes (v7)')
+    server_path = Path(__file__).resolve().parent.parent / 'server.py'
+    with open(server_path, 'r', encoding='utf-8') as f:
+        content = f.read()
+
+    assert_in('_handle_api_tokens_backends', content, 'tokens backends handler exists')
+    assert_in('_handle_api_tokens_models', content, 'tokens models handler exists')
+    assert_in('_handle_api_tokens_stats', content, 'tokens stats handler exists')
+    assert_in('_handle_api_skills', content, 'skills handler exists')
+    assert_in('_handle_api_chat_search', content, 'chat search handler exists')
+    assert_in('/api/tokens/backends', content, '/api/tokens/backends route')
+    assert_in('/api/tokens/models', content, '/api/tokens/models route')
+    assert_in('/api/tokens/stats', content, '/api/tokens/stats route')
+    assert_in('/api/skills', content, '/api/skills route')
+    assert_in('/api/chat/search', content, '/api/chat/search route')
+    assert_in('token_tracker = TokenTracker', content, 'TokenTracker initialized')
+
+
+# ============================================================================
+# 26. Frontend v7 Panels
+# ============================================================================
+
+def test_frontend_v7_panels():
+    _header('26. Frontend v7 Panels')
+    html_path = Path(__file__).resolve().parent.parent / 'frontend' / 'index.html'
+    with open(html_path, 'r', encoding='utf-8') as f:
+        html = f.read()
+    js_path = Path(__file__).resolve().parent.parent / 'frontend' / 'app.js'
+    with open(js_path, 'r', encoding='utf-8') as f:
+        js = f.read()
+
+    # Five panels in HTML
+    assert_in('panel-files', html, 'panel-files exists')
+    assert_in('panel-history', html, 'panel-history exists')
+    assert_in('panel-tokens', html, 'panel-tokens exists')
+    assert_in('panel-skills', html, 'panel-skills exists')
+    assert_in('panel-search', html, 'panel-search exists')
+    assert_in('sidebar-tabs', html, 'sidebar-tabs exists')
+
+    # Five panels in JS
+    assert_in('switchTab', js, 'switchTab function exists')
+    assert_in('panelTokens', js, 'panelTokens variable exists')
+    assert_in('panelSkills', js, 'panelSkills variable exists')
+    assert_in('panelSearch', js, 'panelSearch variable exists')
+
+    # Chart.js
+    assert_in('chart.umd.min.js', html, 'Chart.js included')
+    assert_in('chartBar', js, 'chartBar variable exists')
+    assert_in('chartLine', js, 'chartLine variable exists')
+
+    # Search
+    assert_in('highlightText', js, 'highlightText function exists')
+    assert_in('/api/chat/search', js, 'search API referenced')
+
+    # Skills API
+    assert_in('/api/skills', js, 'skills API referenced')
+
+    # Debounce
+    assert_in('newChatPending', js, 'newChatPending flag exists')
+
+
+
+
 def run_all():
     print("\n" + "=" * 60)
     print("  OfflineAgent — Complete Test Suite")
@@ -1314,6 +1428,9 @@ def run_all():
         test_backend_chat_fn_behavior,
         test_model_command_in_chat_loop,
         test_server_backend_integration,
+        test_token_tracker,
+        test_server_v7_api_routes,
+        test_frontend_v7_panels,
     ]
 
     for test_fn in tests:

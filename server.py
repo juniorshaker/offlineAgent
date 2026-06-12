@@ -46,6 +46,7 @@ from Offlineagent.tool_layer.tool_registry import ToolRegistry
 from Offlineagent.tool_layer.tool_parser import parse_tool_calls, has_tool_calls, extract_text_without_tools
 from Offlineagent.tool_layer import file_tools, shell_tools, document_tools, browser_tools
 from Offlineagent.memory_layer.memory_store import MemoryStore
+from Offlineagent.metrics.token_tracker import TokenTracker
 from Offlineagent.metrics.logger import AgentLogger
 
 # Reuse agent.py's config and tool setup
@@ -62,6 +63,7 @@ _server_state = {
     "registry": None,
     "llm_chat_fn": None,
     "memory_store": None,
+    "token_tracker": None,
     "logger": None,
 }
 
@@ -274,7 +276,9 @@ def init_agent():
 
     # LLM client
     _log("Creating LLM client...")
-    llm_chat_fn, switch_backend_fn, get_active_model_fn, list_backends_fn = create_llm_chat_fn(config)
+    token_tracker = TokenTracker(base_dir / "memory")
+    _server_state["token_tracker"] = token_tracker
+    llm_chat_fn, switch_backend_fn, get_active_model_fn, list_backends_fn = create_llm_chat_fn(config, token_tracker=token_tracker)
     _server_state["llm_chat_fn"] = llm_chat_fn
     _server_state["switch_backend_fn"] = switch_backend_fn
     _server_state["get_active_model_fn"] = get_active_model_fn
@@ -754,7 +758,7 @@ class AgentHandler(BaseHTTPRequestHandler):
 
             # Normal turn
             t0_total = time.time()
-            if not send_sse("status", {"text": "正在分析上下文...", "type": "llm"}):
+            if not send_sse("status", {"text": "姝ｅ湪鍒嗘瀽涓婁笅鏂?..", "type": "llm"}):
                 return
 
             messages = build_messages(system_prompt, state, user_input, config, req_id)
@@ -918,7 +922,152 @@ class AgentHandler(BaseHTTPRequestHandler):
             "message_count": data["message_count"],
         }, ensure_ascii=False).encode("utf-8"))
 
+    # === Token Stats API ===
+
+    def _handle_api_tokens_backends(self):
+        """Handle GET /api/tokens/backends - list backends with records."""
+        tracker = _server_state.get("token_tracker")
+        backends = tracker.get_backends() if tracker else []
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self._send_cors()
+        self.end_headers()
+        self.wfile.write(_json.dumps({"backends": backends}, ensure_ascii=False).encode("utf-8"))
+
+    def _handle_api_tokens_models(self, parsed):
+        """Handle GET /api/tokens/models?backend=primary - list models for a backend."""
+        qs = parse_qs(parsed.query)
+        backend = qs.get("backend", [None])[0]
+        tracker = _server_state.get("token_tracker")
+        models = tracker.get_models(backend=backend) if tracker else []
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self._send_cors()
+        self.end_headers()
+        self.wfile.write(_json.dumps({"models": models, "backend": backend}, ensure_ascii=False).encode("utf-8"))
+
+    def _handle_api_tokens_stats(self, parsed):
+        """Handle GET /api/tokens/stats?backend=primary&model=Qwen3&range=week - aggregated stats."""
+        qs = parse_qs(parsed.query)
+        backend = qs.get("backend", [None])[0]
+        model = qs.get("model", [None])[0]
+        range_val = qs.get("range", ["week"])[0]
+
+        tracker = _server_state.get("token_tracker")
+        if not tracker:
+            self._send_json_error(500, "Token tracker not initialized")
+            return
+
+        data = tracker.query(backend=backend, model=model, range=range_val)
+        summary = tracker.total_summary(backend=backend, model=model, range=range_val)
+
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self._send_cors()
+        self.end_headers()
+        self.wfile.write(_json.dumps({
+            "data": data,
+            "summary": summary,
+            "backend": backend,
+            "model": model,
+            "range": range_val,
+        }, ensure_ascii=False).encode("utf-8"))
+
+    # === Skills API ===
+
+    def _handle_api_skills(self):
+        """Handle GET /api/skills - list all loaded skills."""
+        skills = _server_state.get("skills", [])
+        result = []
+        for s in skills:
+            result.append({
+                "name": s.name,
+                "source": s.source,
+                "description": s.short_desc,
+                "use_count": getattr(s, "use_count", 0),
+            })
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self._send_cors()
+        self.end_headers()
+        self.wfile.write(_json.dumps({"skills": result, "total": len(result)}, ensure_ascii=False).encode("utf-8"))
+
+    # === Chat Search API ===
+
+    def _handle_api_chat_search(self, parsed):
+        """Handle GET /api/chat/search?q=keyword - search conversation history."""
+        qs = parse_qs(parsed.query)
+        keyword = qs.get("q", [""])[0].strip()
+
+        if not keyword:
+            self._send_json_error(400, "Missing query parameter 'q'")
+            return
+
+        import json as _json_module
+        results = []
+        keyword_lower = keyword.lower()
+
+        conv_dir = _AGENT_DIR / "memory" / "conversations"
+        if not conv_dir.exists():
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self._send_cors()
+            self.end_headers()
+            self.wfile.write(_json.dumps({"results": [], "query": keyword}, ensure_ascii=False).encode("utf-8"))
+            return
+
+        # Scan .json conversation files
+        for fpath in sorted(conv_dir.glob("*.json"), reverse=True):
+            if len(results) >= 20:
+                break
+            try:
+                with open(fpath, "r", encoding="utf-8") as f:
+                    data = _json_module.load(f)
+            except Exception:
+                continue
+
+            title = data.get("title", "")
+            messages = data.get("state", {}).get("messages", [])
+            # Search in title and message content
+            snippets = []
+            if keyword_lower in title.lower():
+                snippets.append("Title: " + title)
+
+            for msg in messages:
+                content = msg.get("content", "") if isinstance(msg, dict) else str(msg)
+                if keyword_lower in content.lower():
+                    # Extract context snippet around the keyword
+                    idx = content.lower().find(keyword_lower)
+                    start = max(0, idx - 40)
+                    end = min(len(content), idx + len(keyword) + 60)
+                    snippet = content[start:end]
+                    if start > 0:
+                        snippet = "..." + snippet
+                    if end < len(content):
+                        snippet = snippet + "..."
+                    snippets.append(snippet)
+
+            if snippets:
+                results.append({
+                    "id": data.get("id", fpath.stem),
+                    "title": title,
+                    "created_at": data.get("created_at", ""),
+                    "message_count": data.get("message_count", 0),
+                    "snippets": snippets[:3],
+                })
+
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self._send_cors()
+        self.end_headers()
+        self.wfile.write(_json.dumps({
+            "results": results,
+            "query": keyword,
+            "total": len(results),
+        }, ensure_ascii=False).encode("utf-8"))
+
     def _handle_api_status(self):
+
         """Handle GET /api/status."""
         state = get_or_create_state()
         config = _server_state["config"]
@@ -1102,6 +1251,16 @@ class AgentHandler(BaseHTTPRequestHandler):
             self._handle_api_files(parsed)
         elif path == "/api/logs":
             self._handle_api_logs()
+        elif path == "/api/tokens/backends":
+            self._handle_api_tokens_backends()
+        elif path == "/api/tokens/models":
+            self._handle_api_tokens_models(parsed)
+        elif path == "/api/tokens/stats":
+            self._handle_api_tokens_stats(parsed)
+        elif path == "/api/skills":
+            self._handle_api_skills()
+        elif path == "/api/chat/search":
+            self._handle_api_chat_search(parsed)
         else:
             self._serve_static(path)
 

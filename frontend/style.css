@@ -1,10 +1,10 @@
-/*
- *  OfflineAgent Web UI — Tech Glass Theme
+﻿/*
+ *  OfflineAgent Web UI 鈥?Tech Glass Theme
  *  White/Gray base + glassmorphism + subtle transparency
  */
 
 :root {
-  /* Background hierarchy — light glass */
+  /* Background hierarchy 鈥?light glass */
   --bg-root:       #f0f2f5;
   --bg-panel:      rgba(248,249,252,0.72);
   --bg-elevated:   rgba(255,255,255,0.78);
@@ -24,7 +24,7 @@
   --border-default:  rgba(0,0,0,0.08);
   --border-muted:    rgba(0,0,0,0.05);
 
-  /* Accent — tech blue */
+  /* Accent 鈥?tech blue */
   --accent:          #2563eb;
   --accent-dim:      rgba(37,99,235,0.08);
   --accent-glow:     rgba(37,99,235,0.18);
@@ -593,7 +593,7 @@ body::before {
 
 /* ===========================   Streaming cursor   ===========================*/
 .streaming-cursor::after {
-  content: '▊';
+  content: '鈻?;
   color: var(--accent);
   animation: blink 1s step-end infinite;
 }
@@ -761,132 +761,291 @@ body::before {
 }
 
 
-/* ===========================   History Panel   ===========================*/
-.history-panel {
-  position: fixed;
-  top: 0;
-  right: 0;
-  width: 340px;
-  max-width: 90vw;
-  height: 100vh;
-  background: var(--bg-glass-strong);
-  backdrop-filter: blur(24px);
-  -webkit-backdrop-filter: blur(24px);
-  border-left: 1px solid var(--border-default);
-  box-shadow: -4px 0 32px rgba(0,0,0,0.08);
-  z-index: 25;
+
+
+/* ===========================   History Panel (removed from right, now in sidebar)   ===========================*/
+
+/* ===========================   Sidebar Tabs   ===========================*/
+.sidebar-tabs {
   display: flex;
-  flex-direction: column;
-  transition: transform var(--transition-normal), opacity var(--transition-normal);
+  gap: 0;
+  padding: 0 8px;
+  border-bottom: 1px solid var(--border-default);
+  background: var(--bg-elevated);
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.sidebar-tabs::-webkit-scrollbar { display: none; }
+
+.sidebar-tab {
+  flex: 0 0 auto;
+  padding: 10px 14px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  cursor: pointer;
+  transition: color var(--transition-fast), border-color var(--transition-fast);
+  white-space: nowrap;
+  letter-spacing: 0.3px;
+  font-family: var(--font-sans);
+}
+.sidebar-tab:hover { color: var(--text-primary); }
+.sidebar-tab.active {
+  color: var(--accent);
+  border-bottom-color: var(--accent);
 }
 
-.history-panel.hidden {
-  transform: translateX(100%);
-  opacity: 0;
-  pointer-events: none;
-}
-
-.history-header {
+.sidebar-close-btn {
+  position: absolute;
+  top: 4px;
+  right: 6px;
+  z-index: 2;
+  width: 26px;
+  height: 26px;
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  padding: 0 14px;
-  height: var(--header-h);
-  min-height: var(--header-h);
+  justify-content: center;
+  background: none;
+  border: none;
+  color: var(--text-tertiary);
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+}
+.sidebar-close-btn:hover { color: var(--text-primary); background: var(--bg-hover); }
+
+.sidebar-panel { display: none; flex-direction: column; flex: 1; overflow: hidden; }
+.sidebar-panel.active { display: flex; }
+
+/* Fix: sidebar header removed, panels take full height */
+#sidebar {
+  display: flex;
+  flex-direction: column;
+}
+
+/* ===========================   Files Panel (refined)   ===========================*/
+#panel-files {
+  position: relative;
+}
+#panel-files .sidebar-breadcrumb {
+  padding: 6px 12px;
+  font-size: 11px;
+  color: var(--text-tertiary);
   border-bottom: 1px solid var(--border-muted);
+  background: var(--bg-elevated);
   flex-shrink: 0;
 }
-
-.history-title {
-  font-weight: 600;
-  font-size: 13px;
-  color: var(--text-primary);
-  letter-spacing: -0.2px;
+#panel-files .sidebar-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 4px 0;
 }
+#panel-files .sidebar-preview { display: none; }
+#panel-files .sidebar-preview.visible { display: flex; }
 
+/* ===========================   History Panel   ===========================*/
 .history-list {
   flex: 1;
   overflow-y: auto;
-  padding: 6px 0;
+  padding: 8px 0;
 }
-
-.history-list::-webkit-scrollbar { width: 4px; }
-.history-list::-webkit-scrollbar-track { background: transparent; }
-.history-list::-webkit-scrollbar-thumb { background: rgba(0,0,0,0.10); border-radius: 2px; }
-.history-list::-webkit-scrollbar-thumb:hover { background: rgba(0,0,0,0.18); }
-
-.history-empty {
-  text-align: center;
-  padding: 32px 20px;
-  color: var(--text-tertiary);
-  font-size: 12.5px;
-}
-
 .history-item {
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
-  padding: 12px 16px;
-  margin: 2px 8px;
-  border-radius: var(--radius-sm);
+  padding: 10px 14px;
   cursor: pointer;
+  border-bottom: 1px solid var(--border-muted);
   transition: background var(--transition-fast);
-  border-left: 2px solid transparent;
 }
-
-.history-item:hover {
-  background: var(--bg-hover);
-  border-left-color: var(--accent);
-}
-
+.history-item:hover { background: var(--bg-hover); }
 .history-item-title {
-  font-size: 13.5px;
+  font-size: 13px;
   font-weight: 500;
   color: var(--text-primary);
+  display: block;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  max-width: 240px;
 }
-
 .history-item-meta {
-  font-size: 11.5px;
+  font-size: 11px;
   color: var(--text-tertiary);
+  margin-top: 2px;
+  display: block;
+}
+.history-empty {
+  padding: 24px 14px;
+  text-align: center;
+  color: var(--text-tertiary);
+  font-size: 13px;
 }
 
-/* ===========================   Responsive   ===========================*/
-
-/* ≤ 900px → sidebar overlays */
-@media (max-width: 900px) {
-  #sidebar {
-    position: fixed;
-    top: 0;
-    left: 0;
-    height: 100vh;
-    box-shadow: 0 8px 40px rgba(0,0,0,0.15);
-  }
-
-  #sidebar.hidden {
-    margin-left: calc(-1 * var(--sidebar-w));
-  }
-
-  .sidebar-overlay.visible {
-    display: block;
-  }
+/* ===========================   Tokens Panel   ===========================*/
+.token-controls {
+  display: flex;
+  gap: 6px;
+  padding: 10px 10px 6px;
+  flex-shrink: 0;
+}
+.token-select {
+  flex: 1;
+  padding: 5px 6px;
+  font-size: 11px;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-sm);
+  background: var(--bg-elevated);
+  color: var(--text-primary);
+  font-family: var(--font-sans);
+}
+.token-summary {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+  padding: 6px 10px;
+  flex-shrink: 0;
+}
+.token-card {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-muted);
+  border-radius: var(--radius-sm);
+  padding: 8px 10px;
+  text-align: center;
+}
+.tc-label {
+  display: block;
+  font-size: 10px;
+  color: var(--text-tertiary);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 2px;
+}
+.tc-value {
+  display: block;
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--text-primary);
+  font-variant-numeric: tabular-nums;
+}
+.token-charts {
+  flex: 1;
+  overflow-y: auto;
+  padding: 6px 10px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.token-chart-wrap {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-muted);
+  border-radius: var(--radius-sm);
+  padding: 8px;
+}
+.token-chart-wrap canvas {
+  width: 100% !important;
+  height: 140px !important;
 }
 
-/* ≤ 640px → compact */
-@media (max-width: 640px) {
-  #header { padding: 0 10px; }
-  #messages { padding: 14px 14px 6px; }
+/* ===========================   Skills Panel   ===========================*/
+.skills-count {
+  padding: 10px 14px 4px;
+  font-size: 11px;
+  color: var(--text-tertiary);
+  flex-shrink: 0;
+}
+.skills-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 0 0 8px;
+}
+.skill-item {
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border-muted);
+}
+.skill-item-name {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-primary);
+}
+.skill-item-source {
+  display: inline-block;
+  font-size: 10px;
+  color: var(--accent);
+  background: var(--accent-dim);
+  padding: 1px 6px;
+  border-radius: 10px;
+  margin-left: 6px;
+}
+.skill-item-desc {
+  font-size: 11px;
+  color: var(--text-tertiary);
+  margin-top: 3px;
+  line-height: 1.4;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
 
-  .message { font-size: 13.5px; padding: 8px 12px; }
-  .message.user { max-width: 88%; }
+/* ===========================   Search Panel   ===========================*/
+.search-input-wrap {
+  padding: 10px 10px 6px;
+  flex-shrink: 0;
+}
+.search-input {
+  width: 100%;
+  padding: 8px 12px;
+  font-size: 13px;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-sm);
+  background: var(--bg-elevated);
+  color: var(--text-primary);
+  font-family: var(--font-sans);
+  outline: none;
+  transition: border-color var(--transition-fast);
+}
+.search-input:focus { border-color: var(--accent); }
 
-  .tool-block-header { padding: 6px 12px; font-size: 12px; }
-
-  #input-area { padding: 8px 10px 14px; }
-  .input-wrapper { padding: 4px 4px 4px 12px; border-radius: 24px; }
-  .upload-preview-bar { padding: 0 10px 6px; }
-
-  .model-pill { display: none; }
+.search-results {
+  flex: 1;
+  overflow-y: auto;
+  padding: 4px 0;
+}
+.search-empty {
+  padding: 24px 14px;
+  text-align: center;
+  color: var(--text-tertiary);
+  font-size: 13px;
+}
+.search-result {
+  padding: 10px 14px;
+  cursor: pointer;
+  border-bottom: 1px solid var(--border-muted);
+  transition: background var(--transition-fast);
+}
+.search-result:hover { background: var(--bg-hover); }
+.search-result-title {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-primary);
+  margin-bottom: 4px;
+}
+.search-result-snippet {
+  font-size: 11px;
+  color: var(--text-secondary);
+  line-height: 1.4;
+  max-height: 2.8em;
+  overflow: hidden;
+}
+.search-result-meta {
+  font-size: 10px;
+  color: var(--text-tertiary);
+  margin-top: 3px;
+}
+.search-result .highlight {
+  background: var(--accent-dim);
+  color: var(--accent);
+  font-weight: 600;
+  padding: 0 1px;
+  border-radius: 2px;
 }

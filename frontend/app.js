@@ -1,6 +1,6 @@
 /**
  * OfflineAgent Web UI - Application Logic
- * SSE streaming + file browser + upload + conversation history + cancel reader on done.
+ * v7: Five-tab sidebar + Token stats + Skills panel + Search
  */
 (function () {
   'use strict';
@@ -12,7 +12,6 @@
   var stopBtn       = document.getElementById('btn-stop');
   var clearBtn      = document.getElementById('btn-clear');
   var newChatBtn    = document.getElementById('btn-new-chat');
-  var historyBtn    = document.getElementById('btn-history');
   var filesBtn      = document.getElementById('btn-files');
   var attachBtn     = document.getElementById('btn-attach');
   var fileInput     = document.getElementById('file-input');
@@ -23,9 +22,33 @@
   var sidebarClose  = document.getElementById('btn-sidebar-close');
   var sidebarList   = document.getElementById('sidebar-list');
   var breadcrumb    = document.getElementById('sidebar-breadcrumb');
-  var historyPanel  = document.getElementById('history-panel');
-  var historyClose  = document.getElementById('btn-history-close');
+
+  // Five panels
+  var panelFiles    = document.getElementById('panel-files');
+  var panelHistory  = document.getElementById('panel-history');
+  var panelTokens   = document.getElementById('panel-tokens');
+  var panelSkills   = document.getElementById('panel-skills');
+  var panelSearch   = document.getElementById('panel-search');
+
+  // History (in sidebar)
   var historyList   = document.getElementById('history-list');
+
+  // Tokens
+  var tokenBackend  = document.getElementById('token-backend');
+  var tokenModel    = document.getElementById('token-model');
+  var tokenRange    = document.getElementById('token-range');
+  var tcTotal       = document.getElementById('tc-total');
+  var tcPrompt      = document.getElementById('tc-prompt');
+  var tcCompletion  = document.getElementById('tc-completion');
+  var tcCalls       = document.getElementById('tc-calls');
+
+  // Skills
+  var skillsCount   = document.getElementById('skills-count');
+  var skillsList    = document.getElementById('skills-list');
+
+  // Search
+  var searchInput   = document.getElementById('search-input');
+  var searchResults = document.getElementById('search-results');
 
   // State
   var isStreaming      = false;
@@ -35,13 +58,18 @@
   var abortController  = null;
   var sseReader        = null;
   var sidebarOpen      = false;
-  var historyOpen      = false;
+  var activeTab        = 'files';
   var currentDir       = '';
   var uploadedFiles    = [];
   var selectedFileRow  = null;
+  var chartBar         = null;
+  var chartLine        = null;
+  var searchTimeout    = null;
+  var skillsCache      = null;
 
   // === Init ===
   fetchStatus();
+  fetchSkills();
   inputEl.focus();
 
   // === Event Listeners ===
@@ -49,12 +77,37 @@
   stopBtn.addEventListener('click', stopGeneration);
   clearBtn.addEventListener('click', clearHistory);
   if (newChatBtn) newChatBtn.addEventListener('click', newConversation);
-  if (historyBtn) historyBtn.addEventListener('click', toggleHistory);
-  if (historyClose) historyClose.addEventListener('click', closeHistoryPanel);
-  filesBtn.addEventListener('click', toggleSidebar);
+  filesBtn.addEventListener('click', function () { toggleSidebar('files'); });
   sidebarClose.addEventListener('click', function () { closeSidebar(); });
   attachBtn.addEventListener('click', function () { fileInput.click(); });
   fileInput.addEventListener('change', handleFileSelect);
+
+  // Sidebar tab clicks
+  var tabs = sidebar.querySelectorAll('.sidebar-tab');
+  for (var i = 0; i < tabs.length; i++) {
+    tabs[i].addEventListener('click', function (e) {
+      switchTab(this.getAttribute('data-tab'));
+    });
+  }
+
+  // Token filter changes
+  tokenBackend.addEventListener('change', function () {
+    loadTokenBackend();
+    loadTokenStats();
+  });
+  tokenModel.addEventListener('change', loadTokenStats);
+  tokenRange.addEventListener('change', loadTokenStats);
+
+  // Search input (debounce 300ms)
+  searchInput.addEventListener('input', function () {
+    clearTimeout(searchTimeout);
+    var q = searchInput.value.trim();
+    if (!q) {
+      searchResults.innerHTML = '<div class="search-empty">Enter a keyword to search</div>';
+      return;
+    }
+    searchTimeout = setTimeout(function () { doSearch(q); }, 300);
+  });
 
   // Drag & drop
   (function setupDragDrop() {
@@ -77,7 +130,6 @@
       });
     }
     bindDropZone(document.querySelector('.input-wrapper'));
-    bindDropZone(document.getElementById('sidebar-upload-zone'));
   })();
 
   // Keyboard
@@ -104,18 +156,29 @@
         closeSidebar();
       }
     }
-    if (historyOpen) {
-      if (!historyPanel.contains(e.target) && e.target !== historyBtn && !historyBtn.contains(e.target)) {
-        closeHistoryPanel();
-      }
-    }
   });
 
-  // === History Panel ===
-  function toggleHistory() {
-    if (historyOpen) { closeHistoryPanel(); return; }
-    historyOpen = true;
-    historyPanel.classList.remove('hidden');
+  // === Sidebar Tabs ===
+  function switchTab(tabName) {
+    activeTab = tabName;
+    var panels = sidebar.querySelectorAll('.sidebar-panel');
+    for (var i = 0; i < panels.length; i++) { panels[i].classList.remove('active'); }
+    var tabBtns = sidebar.querySelectorAll('.sidebar-tab');
+    for (var j = 0; j < tabBtns.length; j++) { tabBtns[j].classList.remove('active'); }
+
+    var panel = document.getElementById('panel-' + tabName);
+    if (panel) panel.classList.add('active');
+    var btn = sidebar.querySelector('[data-tab="' + tabName + '"]');
+    if (btn) btn.classList.add('active');
+
+    // Load data for the tab
+    if (tabName === 'history') loadHistory();
+    if (tabName === 'tokens') { loadTokenBackend(); loadTokenStats(); }
+    if (tabName === 'skills') fetchSkills();
+  }
+
+  // === History (in sidebar) ===
+  function loadHistory() {
     historyList.innerHTML = '<div class="history-empty">Loading...</div>';
     fetch('/api/chat/list')
       .then(function (r) { return r.json(); })
@@ -123,11 +186,6 @@
       .catch(function () {
         historyList.innerHTML = '<div class="history-empty">Failed to load</div>';
       });
-  }
-
-  function closeHistoryPanel() {
-    historyOpen = false;
-    historyPanel.classList.add('hidden');
   }
 
   function renderHistoryList(data) {
@@ -142,12 +200,11 @@
       var dateStr = c.created_at ? c.created_at.slice(0, 16).replace('T', ' ') : '';
       html += '<div class="history-item" data-id="' + escapeAttr(c.id) + '">' +
         '<span class="history-item-title">' + escapeHtml(c.title || '(untitled)') + '</span>' +
-        '<span class="history-item-meta">' + dateStr + ' * ' + (c.message_count || 0) + ' msgs</span>' +
+        '<span class="history-item-meta">' + dateStr + ' \u00b7 ' + (c.message_count || 0) + ' msgs</span>' +
         '</div>';
     }
     historyList.innerHTML = html;
 
-    // Click handlers
     var items = historyList.querySelectorAll('.history-item');
     for (var j = 0; j < items.length; j++) {
       items[j].addEventListener('click', function () {
@@ -159,11 +216,8 @@
 
   function switchConversation(convId) {
     if (isStreaming) return;
-    closeHistoryPanel();
-
-    // Add a system message while loading
+    closeSidebar();
     addMessage('system', 'Switching conversation...');
-
     fetch('/api/chat/switch/' + convId, { method: 'POST' })
       .then(function (r) { return r.json(); })
       .then(function (data) {
@@ -171,10 +225,8 @@
           addMessage('system', 'Error: ' + data.error);
           return;
         }
-        // Clear messages and show loaded conversation
         messagesEl.innerHTML = '';
         addMessage('system', 'Switched to: ' + escapeHtml(data.title || convId));
-        // Fetch status to update model info
         fetchStatus();
         inputEl.focus();
       })
@@ -183,15 +235,229 @@
       });
   }
 
-  // === Sidebar ===
-  function toggleSidebar() {
+  // === Tokens Tab ===
+  function loadTokenBackend() {
+    fetch('/api/tokens/backends')
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        var backends = data.backends || [];
+        tokenBackend.innerHTML = '<option value="">All backends</option>';
+        for (var i = 0; i < backends.length; i++) {
+          tokenBackend.innerHTML += '<option value="' + escapeAttr(backends[i]) + '">' + escapeHtml(backends[i]) + '</option>';
+        }
+        loadTokenModels(tokenBackend.value || '');
+      })
+      .catch(function () {});
+  }
+
+  function loadTokenModels(backend) {
+    var url = '/api/tokens/models' + (backend ? '?backend=' + encodeURIComponent(backend) : '');
+    fetch(url)
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        var models = data.models || [];
+        tokenModel.innerHTML = '<option value="">All models</option>';
+        for (var i = 0; i < models.length; i++) {
+          tokenModel.innerHTML += '<option value="' + escapeAttr(models[i]) + '">' + escapeHtml(models[i]) + '</option>';
+        }
+      })
+      .catch(function () {});
+  }
+
+  function loadTokenStats() {
+    var backend = tokenBackend.value || '';
+    var model = tokenModel.value || '';
+    var range = tokenRange.value || 'week';
+    var params = 'range=' + encodeURIComponent(range);
+    if (backend) params += '&backend=' + encodeURIComponent(backend);
+    if (model) params += '&model=' + encodeURIComponent(model);
+
+    fetch('/api/tokens/stats?' + params)
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        var summary = data.summary || {};
+        tcTotal.textContent = formatNum(summary.total_tokens || 0);
+        tcPrompt.textContent = formatNum(summary.prompt_tokens || 0);
+        tcCompletion.textContent = formatNum(summary.completion_tokens || 0);
+        tcCalls.textContent = summary.total_calls || 0;
+
+        var chartData = data.data || [];
+        renderTokenCharts(chartData);
+      })
+      .catch(function () {
+        tcTotal.textContent = 'N/A';
+        tcPrompt.textContent = 'N/A';
+        tcCompletion.textContent = 'N/A';
+        tcCalls.textContent = 'N/A';
+      });
+  }
+
+  function renderTokenCharts(data) {
+    if (!data || !data.length) return;
+
+    var labels = [];
+    var barVals = [];
+    var lineVals = [];
+    for (var i = 0; i < data.length; i++) {
+      var d = data[i];
+      labels.push(d.period);
+      barVals.push(d.total_tokens || 0);
+      lineVals.push(d.total_tokens || 0);
+    }
+
+    // Bar chart
+    var ctxBar = document.getElementById('chart-bar');
+    if (ctxBar) {
+      if (chartBar) chartBar.destroy();
+      chartBar = new Chart(ctxBar.getContext('2d'), {
+        type: 'bar',
+        data: {
+          labels: labels,
+          datasets: [{
+            label: 'Total Tokens',
+            data: barVals,
+            backgroundColor: 'rgba(37,99,235,0.30)',
+            borderColor: 'rgba(37,99,235,0.80)',
+            borderWidth: 1,
+            borderRadius: 3,
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: { legend: { display: false } },
+          scales: {
+            x: { ticks: { font: { size: 9 }, maxRotation: 45, minRotation: 0 } },
+            y: { ticks: { font: { size: 9 }, callback: function(v) { return formatNum(v); } } }
+          }
+        }
+      });
+    }
+
+    // Line chart
+    var ctxLine = document.getElementById('chart-line');
+    if (ctxLine) {
+      if (chartLine) chartLine.destroy();
+      chartLine = new Chart(ctxLine.getContext('2d'), {
+        type: 'line',
+        data: {
+          labels: labels,
+          datasets: [{
+            label: 'Total Tokens',
+            data: lineVals,
+            borderColor: 'rgba(37,99,235,0.80)',
+            borderWidth: 2,
+            fill: true,
+            backgroundColor: 'rgba(37,99,235,0.06)',
+            tension: 0.3,
+            pointRadius: 2,
+            pointBackgroundColor: 'rgba(37,99,235,0.80)',
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: { legend: { display: false } },
+          scales: {
+            x: { ticks: { font: { size: 9 }, maxRotation: 45, minRotation: 0 } },
+            y: { ticks: { font: { size: 9 }, callback: function(v) { return formatNum(v); } } }
+          }
+        }
+      });
+    }
+  }
+
+  // === Skills Tab ===
+  function fetchSkills() {
+    if (skillsCache) { renderSkills(skillsCache); return; }
+    fetch('/api/skills')
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        skillsCache = data;
+        renderSkills(data);
+      })
+      .catch(function () {
+        skillsCount.textContent = 'Failed to load skills';
+      });
+  }
+
+  function renderSkills(data) {
+    skillsCache = data;
+    var skills = data.skills || [];
+    skillsCount.textContent = skills.length + ' skills loaded';
+    if (!skills.length) {
+      skillsList.innerHTML = '<div class="skill-item" style="color:var(--text-tertiary)">No skills available</div>';
+      return;
+    }
+    var html = '';
+    for (var i = 0; i < skills.length; i++) {
+      var s = skills[i];
+      html += '<div class="skill-item">' +
+        '<span class="skill-item-name">' + escapeHtml(s.name) + '</span>' +
+        '<span class="skill-item-source">' + escapeHtml(s.source || 'local') + '</span>' +
+        '<div class="skill-item-desc">' + escapeHtml(s.description || 'No description') + '</div>' +
+        '</div>';
+    }
+    skillsList.innerHTML = html;
+  }
+
+  // === Search Tab ===
+  function doSearch(query) {
+    searchResults.innerHTML = '<div class="search-empty">Searching...</div>';
+    fetch('/api/chat/search?q=' + encodeURIComponent(query))
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        var results = data.results || [];
+        if (!results.length) {
+          searchResults.innerHTML = '<div class="search-empty">No results for "' + escapeHtml(query) + '"</div>';
+          return;
+        }
+        var html = '';
+        for (var i = 0; i < results.length; i++) {
+          var r = results[i];
+          var dateStr = r.created_at ? r.created_at.slice(0, 16).replace('T', ' ') : '';
+          html += '<div class="search-result" data-id="' + escapeAttr(r.id) + '">' +
+            '<div class="search-result-title">' + highlightText(r.title || '(untitled)', query) + '</div>';
+          var snippets = r.snippets || [];
+          for (var j = 0; j < Math.min(snippets.length, 2); j++) {
+            html += '<div class="search-result-snippet">' + highlightText(snippets[j].substring(0, 160), query) + '</div>';
+          }
+          html += '<div class="search-result-meta">' + dateStr + ' \u00b7 ' + (r.message_count || 0) + ' msgs</div>' +
+            '</div>';
+        }
+        searchResults.innerHTML = html;
+
+        var items = searchResults.querySelectorAll('.search-result');
+        for (var k = 0; k < items.length; k++) {
+          items[k].addEventListener('click', function () {
+            var id = this.getAttribute('data-id');
+            if (id) switchConversation(id);
+          });
+        }
+      })
+      .catch(function () {
+        searchResults.innerHTML = '<div class="search-empty">Search failed</div>';
+      });
+  }
+
+  function highlightText(text, keyword) {
+    if (!keyword) return escapeHtml(text);
+    var escaped = escapeHtml(text);
+    var kwEscaped = escapeHtml(keyword);
+    var regex = new RegExp('(' + kwEscaped.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + ')', 'gi');
+    return escaped.replace(regex, '<mark class="highlight">$1</mark>');
+  }
+
+  // === Sidebar Toggle ===
+  function toggleSidebar(tab) {
     if (sidebarOpen) { closeSidebar(); }
-    else { openSidebar(); if (!currentDir) navigateTo('/'); }
+    else { openSidebar(); if (tab) switchTab(tab); if (tab === 'files' && !currentDir) navigateTo('/'); }
   }
 
   function openSidebar() {
     sidebar.classList.remove('hidden');
     sidebarOpen = true;
+    if (!activeTab) switchTab('files');
     if (window.innerWidth <= 900) {
       var overlay = document.querySelector('.sidebar-overlay');
       if (!overlay) {
@@ -210,6 +476,7 @@
     if (overlay) overlay.classList.remove('visible');
   }
 
+  // === File Panel ===
   function navigateTo(path) {
     currentDir = path || currentDir;
     fetch('/api/files?path=' + encodeURIComponent(currentDir))
@@ -294,106 +561,48 @@
 
   function showPreview(data) {
     var panel = document.getElementById('sidebar-preview');
-    if (!panel) {
-      panel = document.createElement('div');
-      panel.id = 'sidebar-preview';
-      panel.className = 'sidebar-preview';
-      panel.innerHTML = '<div class="preview-header"><span id="preview-title">Preview</span>' +
-        '<button class="btn-icon" id="btn-preview-close" title="Close" style="width:22px;height:22px">&times;</button></div>' +
-        '<div class="preview-content" id="preview-content"></div>';
-      sidebar.appendChild(panel);
-      document.getElementById('btn-preview-close').addEventListener('click', hidePreview);
-    }
+    if (!panel) return;
     var titleEl = document.getElementById('preview-title');
     var contentEl = document.getElementById('preview-content');
-    if (data.type === 'image' && data.data_url) {
-      titleEl.textContent = (data.filename || 'Image') + ' (' + (data.dimensions ? data.dimensions[0] + 'x' + data.dimensions[1] : '') + ')';
-      contentEl.innerHTML = '<img src="' + data.data_url + '" alt="preview" style="max-width:100%;border-radius:6px">';
-    } else if (data.type === 'error') {
+
+    if (data.type === 'error') {
+      contentEl.innerHTML = '<div class="preview-error">' + escapeHtml(data.content) + '</div>';
       titleEl.textContent = 'Error';
-      contentEl.innerHTML = '<span style="color:var(--red)">' + escapeHtml(data.content) + '</span>';
     } else {
-      var label = data.filename || data.format || data.type || 'File';
-      titleEl.textContent = label + ' (' + (data.size ? formatSize(data.size) : '') + ')';
-      contentEl.textContent = data.content || '(empty)';
+      titleEl.textContent = data.path || 'Preview';
+      if (data.type === 'image') {
+        contentEl.innerHTML = '<img src="' + data.content + '" alt="preview" style="max-width:100%;height:auto">';
+      } else {
+        contentEl.innerHTML = '<pre class="preview-code">' + escapeHtml((data.content || '').substring(0, 20000)) + '</pre>';
+      }
     }
     panel.classList.add('visible');
+    var closeBtn = document.getElementById('btn-preview-close');
+    if (closeBtn) {
+      var newBtn = closeBtn.cloneNode(true);
+      closeBtn.parentNode.replaceChild(newBtn, closeBtn);
+      newBtn.addEventListener('click', hidePreview);
+    }
   }
 
   function hidePreview() {
     var panel = document.getElementById('sidebar-preview');
     if (panel) panel.classList.remove('visible');
-    if (selectedFileRow) { selectedFileRow.classList.remove('selected'); selectedFileRow = null; }
   }
 
   function updateBreadcrumb(path) {
-    if (!path || path === 'This PC') {
-      breadcrumb.innerHTML = '<span class="breadcrumb-seg" data-path="/">This PC</span>';
-      bindBreadcrumbClicks();
-      return;
-    }
-    var parts = path.replace(/\\/g, '/').split('/').filter(Boolean);
-    var html = '<span class="breadcrumb-seg" data-path="/">This PC</span>';
-    var cumulative = '';
-    for (var i = 0; i < parts.length; i++) {
-      cumulative += parts[i];
-      html += '<span class="breadcrumb-sep">/</span>';
-      html += '<span class="breadcrumb-seg" data-path="' + escapeAttr(cumulative + '\\') + '">' +
-        escapeHtml(parts[i]) + '</span>';
-      cumulative += '\\';
-    }
-    breadcrumb.innerHTML = html;
-    bindBreadcrumbClicks();
-  }
-
-  function bindBreadcrumbClicks() {
-    var segs = breadcrumb.querySelectorAll('.breadcrumb-seg');
-    for (var i = 0; i < segs.length; i++) {
-      segs[i].addEventListener('click', function () {
-        navigateTo(this.getAttribute('data-path'));
-        hidePreview();
-      });
-    }
+    breadcrumb.textContent = path || '/';
   }
 
   // === File Upload ===
   function handleFileSelect(e) {
-    if (e.target.files && e.target.files.length) processFiles(e.target.files);
-    fileInput.value = '';
+    if (e.target.files && e.target.files.length) {
+      processFiles(e.target.files);
+      e.target.value = '';
+    }
   }
 
-
-
   function processFiles(fileList) {
-
-  // Upload a binary file (docx/xlsx/pptx/pdf) to server for text extraction
-  var uploadAndParse = function(file) {
-    var fname = file.name;
-    addMessage('system', 'Parsing ' + fname + '...');
-    var formData = new FormData();
-    formData.append('file', file);
-    fetch('/api/upload', { method: 'POST', body: formData })
-      .then(function(resp) { return resp.json(); })
-      .then(function(data) {
-        var content = '';
-        if (data.type === 'office' || data.type === 'pdf') {
-          content = data.content || '';
-        } else if (data.content) {
-          content = typeof data.content === 'string' ? data.content : JSON.stringify(data.content);
-        } else {
-          content = '[Unable to parse ' + fname + ']';
-        }
-        var isImage = false;
-        uploadedFiles.push({ name: fname, content: content, isImage: isImage });
-        renderUploadChips();
-      })
-      .catch(function(err) {
-        addMessage('system', 'Upload failed for ' + fname + ': ' + err.message);
-        uploadedFiles.push({ name: fname, content: '[Upload failed: ' + err.message + ']', isImage: false });
-        renderUploadChips();
-      });
-  };
-
     var SUPPORTED = [
       '.jpg','.jpeg','.png','.gif','.webp','.bmp','.svg','.ico',
       '.txt','.sql','.md','.py','.js','.ts','.jsx','.tsx',
@@ -422,7 +631,6 @@
       if (/^\.(jpg|jpeg|png|gif|webp|bmp|svg|ico)$/i.test(ext)) {
         reader.readAsDataURL(file);
       } else {
-        // Binary formats: upload to server for proper text extraction
         var isBinary = /^\.(docx|xlsx|pptx|pdf)$/i.test(ext);
         if (isBinary) {
           uploadAndParse(file);
@@ -431,6 +639,28 @@
         }
       }
     }
+  }
+
+  function uploadAndParse(file) {
+    var formData = new FormData();
+    formData.append('file', file);
+    fetch('/api/upload', { method: 'POST', body: formData })
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        if (data.error) {
+          addMessage('system', 'Upload error: ' + data.error);
+          return;
+        }
+        uploadedFiles.push({
+          name: data.filename || file.name,
+          content: data.content || '[Parsed: ' + (data.type || 'unknown') + ']',
+          isImage: false,
+        });
+        renderUploadChips();
+      })
+      .catch(function (err) {
+        addMessage('system', 'Upload failed: ' + err.message);
+      });
   }
 
   function renderUploadChips() {
@@ -648,7 +878,7 @@
     isStreaming = active;
     sendBtn.hidden = active;
     stopBtn.hidden = !active;
-    inputEl.disabled = active;
+    inputEl.readOnly = active;
     if (active) { statusDot.classList.add('active'); statusDot.title = 'active'; }
     else { statusDot.classList.remove('active', 'error'); statusDot.title = 'idle'; }
   }
@@ -687,6 +917,8 @@
         if (d.saved_id) {
           addMessage('system', 'Previous conversation saved (ID: ' + d.saved_id.slice(0, 8) + '...)');
         }
+        // Reset skills cache since conversations changed
+        skillsCache = null;
       })
       .catch(function () { addMessage('system', 'Failed to create new conversation'); })
       .finally(function () { newChatPending = false; });
@@ -698,7 +930,7 @@
     welcome.className = 'message system welcome';
     welcome.innerHTML = '<div class="welcome-icon"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg></div>' +
       '<div class="welcome-text"><strong>' + escapeHtml(title) + '</strong>' +
-      '<span>Enter /help for available commands</span></div>';
+      '<span>Type /help for commands</span></div>';
     messagesEl.appendChild(welcome);
     inputEl.focus();
   }
@@ -725,6 +957,11 @@
     if (bytes < 1024) return bytes + ' B';
     if (bytes < 1048576) return (bytes / 1024).toFixed(1) + ' KB';
     return (bytes / 1048576).toFixed(1) + ' MB';
+  }
+  function formatNum(n) {
+    if (n >= 1000000) return (n / 1000000).toFixed(1) + 'M';
+    if (n >= 1000) return (n / 1000).toFixed(1) + 'K';
+    return String(n);
   }
   function joinPath(base, name) {
     if (!base) return name;

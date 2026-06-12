@@ -12,58 +12,92 @@
 <div id="app">
   <div class="sidebar-overlay"></div>
 
-  <!-- File Browser Sidebar -->
+  <!-- Sidebar with 5 tab panels -->
   <aside id="sidebar" class="sidebar hidden">
-    <div class="sidebar-header">
-      <span class="sidebar-title">Files</span>
-      <div class="sidebar-actions">
-        <button class="btn-icon" id="btn-sidebar-upload" title="Upload file" onclick="document.getElementById('file-input').click()">
-          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
-        </button>
-        <button class="btn-icon" id="btn-sidebar-close" title="Close">
-          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6L6 18M6 6l12 12"/></svg>
-        </button>
+    <div class="sidebar-tabs">
+      <button class="sidebar-tab active" data-tab="files" title="Files">Files</button>
+      <button class="sidebar-tab" data-tab="history" title="History">History</button>
+      <button class="sidebar-tab" data-tab="tokens" title="Tokens">Tokens</button>
+      <button class="sidebar-tab" data-tab="skills" title="Skills">Skills</button>
+      <button class="sidebar-tab" data-tab="search" title="Search">Search</button>
+    </div>
+    <button class="btn-icon sidebar-close-btn" id="btn-sidebar-close" title="Close">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6L6 18M6 6l12 12"/></svg>
+    </button>
+
+    <!-- Files Panel -->
+    <div class="sidebar-panel active" id="panel-files">
+      <div class="sidebar-breadcrumb" id="sidebar-breadcrumb"></div>
+      <div class="sidebar-list" id="sidebar-list"></div>
+      <div class="sidebar-preview" id="sidebar-preview">
+        <div class="preview-header"><span id="preview-title">Preview</span><button class="btn-icon" id="btn-preview-close" title="Close" style="width:22px;height:22px">&times;</button></div>
+        <div class="preview-content" id="preview-content"></div>
       </div>
     </div>
-    <div class="upload-zone" id="sidebar-upload-zone" onclick="document.getElementById('file-input').click()">
-      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-bottom:4px;opacity:0.7"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
-      <br>Drop files here or click
+
+    <!-- History Panel -->
+    <div class="sidebar-panel" id="panel-history">
+      <div class="history-list" id="history-list">
+        <div class="history-empty">Loading...</div>
+      </div>
     </div>
-    <div class="sidebar-breadcrumb" id="sidebar-breadcrumb"></div>
-    <div class="sidebar-list" id="sidebar-list"></div>
-    <div class="sidebar-preview" id="sidebar-preview">
-      <div class="preview-header"><span id="preview-title">Preview</span><button class="btn-icon" id="btn-preview-close" title="Close" style="width:22px;height:22px">&times;</button></div>
-      <div class="preview-content" id="preview-content"></div>
+
+    <!-- Tokens Panel -->
+    <div class="sidebar-panel" id="panel-tokens">
+      <div class="token-controls">
+        <select id="token-backend" class="token-select">
+          <option value="">All backends</option>
+        </select>
+        <select id="token-model" class="token-select">
+          <option value="">All models</option>
+        </select>
+        <select id="token-range" class="token-select">
+          <option value="hour">Hour</option>
+          <option value="day">Day</option>
+          <option value="week" selected>Week</option>
+          <option value="month">Month</option>
+        </select>
+      </div>
+      <div class="token-summary" id="token-summary">
+        <div class="token-card"><span class="tc-label">Total Tokens</span><span class="tc-value" id="tc-total">0</span></div>
+        <div class="token-card"><span class="tc-label">Prompt</span><span class="tc-value" id="tc-prompt">0</span></div>
+        <div class="token-card"><span class="tc-label">Completion</span><span class="tc-value" id="tc-completion">0</span></div>
+        <div class="token-card"><span class="tc-label">API Calls</span><span class="tc-value" id="tc-calls">0</span></div>
+      </div>
+      <div class="token-charts">
+        <div class="token-chart-wrap"><canvas id="chart-bar"></canvas></div>
+        <div class="token-chart-wrap"><canvas id="chart-line"></canvas></div>
+      </div>
+    </div>
+
+    <!-- Skills Panel -->
+    <div class="sidebar-panel" id="panel-skills">
+      <div class="skills-count" id="skills-count">0 skills loaded</div>
+      <div class="skills-list" id="skills-list"></div>
+    </div>
+
+    <!-- Search Panel -->
+    <div class="sidebar-panel" id="panel-search">
+      <div class="search-input-wrap">
+        <input type="text" id="search-input" class="search-input" placeholder="Search conversations...">
+      </div>
+      <div class="search-results" id="search-results">
+        <div class="search-empty">Enter a keyword to search</div>
+      </div>
     </div>
   </aside>
-
-  <!-- History Panel -->
-  <div id="history-panel" class="history-panel hidden">
-    <div class="history-header">
-      <span class="history-title">Conversation History</span>
-      <button class="btn-icon" id="btn-history-close" title="Close">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6L6 18M6 6l12 12"/></svg>
-      </button>
-    </div>
-    <div class="history-list" id="history-list">
-      <div class="history-empty">Loading...</div>
-    </div>
-  </div>
 
   <!-- Main chat area -->
   <div class="main-panel">
     <header id="header">
       <div class="header-left">
-        <button class="btn-icon" id="btn-files" title="Toggle file browser">
+        <button class="btn-icon" id="btn-files" title="Toggle sidebar">
           <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"/></svg>
         </button>
         <span class="model-pill" id="model-name">--</span>
         <span class="status-dot" id="status-dot" title="idle"></span>
       </div>
       <div class="header-right">
-        <button class="btn-icon" id="btn-history" title="Conversation history">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
-        </button>
         <button class="btn-icon" id="btn-new-chat" title="New conversation">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>
         </button>
@@ -110,6 +144,7 @@
   </div>
 </div>
 
+<script src="/vendor/chart.umd.min.js"></script>
 <script src="/app.js"></script>
 </body>
 </html>
