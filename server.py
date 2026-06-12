@@ -284,6 +284,16 @@ def init_agent():
     _server_state["get_active_model_fn"] = get_active_model_fn
     _server_state["list_backends_fn"] = list_backends_fn
 
+    # Detect echo mode — no real LLM connected
+    _is_echo = False
+    llm_cfg = config.get("llm", {})
+    active_be = llm_cfg.get(llm_cfg.get("active", "primary"), {})
+    active_url = active_be.get("url", "") if isinstance(active_be, dict) else ""
+    if not active_url or "your-internal-api" in active_url or "api.openai.com" in active_url:
+        _is_echo = True
+        _log("WARNING: LLM URL is placeholder/unreachable — running in ECHO MODE (tools disabled)")
+    _server_state["is_echo_mode"] = _is_echo
+
     # Tools
     registry = ToolRegistry()
     register_tools(registry, config, base_dir)
@@ -1079,6 +1089,7 @@ class AgentHandler(BaseHTTPRequestHandler):
         status["tools"] = registry.names()
         status["model"] = _get_active_model_name()
         status["llm_url"] = config.get("llm", {}).get("url", "unknown")
+        status["is_echo_mode"] = _server_state.get("is_echo_mode", False)
 
         self.send_response(200)
         self.send_header("Content-Type", "application/json")

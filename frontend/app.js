@@ -149,6 +149,27 @@
     this.style.height = Math.min(this.scrollHeight, 160) + 'px';
   });
 
+  // Paste handler — support pasting images from clipboard
+  inputEl.addEventListener('paste', function (e) {
+    var items = (e.clipboardData || window.clipboardData).items;
+    if (!items) return;
+    for (var i = 0; i < items.length; i++) {
+      var item = items[i];
+      if (item.type.indexOf('image') === 0) {
+        e.preventDefault();  // Don't paste the image as text
+        var blob = item.getAsFile();
+        var reader = new FileReader();
+        reader.onload = (function (fname) {
+          return function (ev) {
+            uploadedFiles.push({ name: fname, content: ev.target.result, isImage: true });
+            renderUploadChips();
+          };
+        })('pasted-image-' + Date.now() + '.png');
+        reader.readAsDataURL(blob);
+      }
+    }
+  });
+
   // Click-outside to close panels
   document.addEventListener('click', function (e) {
     if (sidebarOpen && window.innerWidth <= 900) {
@@ -941,11 +962,19 @@
       .then(function (status) {
         modelNameEl.textContent = status.model || '--';
         statusDot.title = 'connected: ' + (status.model || '--');
+        // Show echo mode warning if not connected to real LLM
+        var banner = document.getElementById('echo-banner');
+        if (banner) {
+          banner.style.display = status.is_echo_mode ? 'flex' : 'none';
+        }
       })
       .catch(function () {
         modelNameEl.textContent = '--';
         statusDot.classList.add('error');
         statusDot.title = 'disconnected';
+        // Also show echo banner on connection failure
+        var banner = document.getElementById('echo-banner');
+        if (banner) { banner.style.display = 'flex'; }
       });
   }
 

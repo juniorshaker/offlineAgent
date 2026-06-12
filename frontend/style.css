@@ -300,6 +300,22 @@ body::before {
 .preview-content::-webkit-scrollbar-thumb { background: rgba(0,0,0,0.10); border-radius: 2px; }
 
 /* ===========================   Main Panel   ===========================*/
+/* Echo mode warning banner */
+.echo-banner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 16px;
+  background: rgba(234, 179, 8, 0.12);
+  border-bottom: 1px solid rgba(234, 179, 8, 0.25);
+  color: var(--text-primary);
+  font-size: 12px;
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+}
+.echo-banner-icon { font-size: 14px; flex-shrink: 0; }
+.echo-banner-text { flex: 1; line-height: 1.4; }
+
 .main-panel {
   flex: 1;
   display: flex;

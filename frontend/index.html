@@ -89,6 +89,11 @@
 
   <!-- Main chat area -->
   <div class="main-panel">
+    <!-- Echo mode warning banner (hidden by default) -->
+    <div class="echo-banner" id="echo-banner" style="display:none">
+      <span class="echo-banner-icon">⚠️</span>
+      <span class="echo-banner-text">LLM API 未连接 — 运行在 Echo Mode，工具和文件生成均不可用。请检查 config.yaml 中的 llm.primary.url</span>
+    </div>
     <header id="header">
       <div class="header-left">
         <button class="btn-icon" id="btn-files" title="Toggle sidebar">

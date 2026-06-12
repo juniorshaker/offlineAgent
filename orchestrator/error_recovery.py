@@ -108,6 +108,39 @@ def repair_after_error(model: str, error_message: str, messages: list[dict], bas
     return messages
 
 
+
+def _build_image_description(block: dict) -> str:
+    """Build a text description of an image block for models that can't handle images."""
+    img_url = block.get("image_url", {}).get("url", "") if isinstance(block.get("image_url"), dict) else ""
+    if not img_url:
+        block_type = block.get("type", "unknown")
+        return f"[???????{block_type}??]"
+
+    # Extract basic info from data URL
+    import base64
+    img_info = "[??]"
+    if img_url.startswith("data:image/"):
+        parts = img_url.split(";")
+        mime = parts[0].replace("data:", "") if parts else "image/unknown"
+        fmt = mime.replace("image/", "").upper()
+        # Calculate approximate size from base64 data
+        data_part = img_url.split(",")[-1] if "," in img_url else ""
+        try:
+            size_bytes = len(base64.b64decode(data_part + "===", validate=False))
+            if size_bytes > 1024 * 1024:
+                size_str = f"?{size_bytes / (1024*1024):.1f}MB"
+            elif size_bytes > 1024:
+                size_str = f"?{size_bytes / 1024:.0f}KB"
+            else:
+                size_str = f"{size_bytes}B"
+        except Exception:
+            size_str = "????"
+        img_info = f"[??: ??={fmt}, ??={size_str}]"
+    elif img_url.startswith("http"):
+        img_info = f"[??: ??URL={img_url[:80]}...]"
+
+    return f"{img_info}\n[??: ??????????????????????????????????????????]"
+
 def _strip_unsupported(messages: list[dict], unsupported: list[str]) -> list[dict]:
     """Remove unsupported content blocks from messages."""
     stripped = []
@@ -140,9 +173,10 @@ def _strip_unsupported(messages: list[dict], unsupported: list[str]) -> list[dic
 
                 if should_strip:
                     changed = True
+                    img_desc = _build_image_description(block)
                     new_content.append({
                         "type": "text",
-                        "text": f"[Content removed: {block_type} not supported by this model]",
+                        "text": img_desc,
                     })
                 else:
                     new_content.append(block)

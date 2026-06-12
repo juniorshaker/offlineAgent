@@ -1397,6 +1397,82 @@ def test_frontend_v7_panels():
 
 
 
+
+
+# ============================================================================
+# 27. Paste Image Handler (v7)
+# ============================================================================
+
+def test_paste_image_handler():
+    _header('27. Paste Image Handler (v7)')
+    js_path = Path(__file__).resolve().parent.parent / 'frontend' / 'app.js'
+    with open(js_path, 'r', encoding='utf-8') as f:
+        js = f.read()
+    assert_in('paste', js, 'paste event listener exists')
+    assert_in('clipboardData', js, 'clipboardData access exists')
+    assert_in('readAsDataURL', js, 'readAsDataURL used for image paste')
+    assert_in('uploadedFiles.push', js, 'pasted image added to uploadedFiles')
+
+
+# ============================================================================
+# 28. Echo Mode Warning (v7)
+# ============================================================================
+
+def test_echo_mode_warning():
+    _header('28. Echo Mode Warning (v7)')
+    server_path = Path(__file__).resolve().parent.parent / 'server.py'
+    with open(server_path, 'r', encoding='utf-8') as f:
+        content = f.read()
+    html_path = Path(__file__).resolve().parent.parent / 'frontend' / 'index.html'
+    with open(html_path, 'r', encoding='utf-8') as f:
+        html = f.read()
+    js_path = Path(__file__).resolve().parent.parent / 'frontend' / 'app.js'
+    with open(js_path, 'r', encoding='utf-8') as f:
+        js = f.read()
+
+    assert_in('is_echo_mode', content, 'is_echo_mode in server.py')
+    assert_in('echo-banner', html, 'echo-banner element in HTML')
+    assert_in('is_echo_mode', js, 'is_echo_mode check in JS')
+    assert_in("display = status.is_echo_mode ? 'flex' : 'none'", js, 'echo banner toggle logic')
+
+
+# ============================================================================
+# 29. Image Description Builder (v7)
+# ============================================================================
+
+def test_image_description_builder():
+    _header('29. Image Description Builder (v7)')
+    recovery_path = Path(__file__).resolve().parent.parent / 'orchestrator' / 'error_recovery.py'
+    with open(recovery_path, 'r', encoding='utf-8') as f:
+        content = f.read()
+
+    assert_in('_build_image_description', content, '_build_image_description function exists')
+    assert_in('img_desc = _build_image_description', content, '_build_image_description called in strip')
+
+    from Offlineagent.orchestrator.error_recovery import _build_image_description
+
+    # Test with data URL image
+    import base64
+    tiny_png = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=="
+    data_url = f"data:image/png;base64,{tiny_png}"
+    block = {"type": "image_url", "image_url": {"url": data_url}}
+    result = _build_image_description(block)
+    assert_in("??=PNG", result, "PNG format detected")
+    assert_in("??", result, "image keyword present")
+
+    # Test with HTTP URL
+    block2 = {"type": "image_url", "image_url": {"url": "https://example.com/photo.jpg"}}
+    result2 = _build_image_description(block2)
+    assert_in("??URL", result2, "remote URL keyword present")
+
+    # Test with unknown block type
+    block3 = {"type": "unknown_media", "image_url": ""}
+    result3 = _build_image_description(block3)
+    assert_in("???", result3, "fallback message present")
+
+
+
+
 def run_all():
     print("\n" + "=" * 60)
     print("  OfflineAgent — Complete Test Suite")
@@ -1431,6 +1507,9 @@ def run_all():
         test_token_tracker,
         test_server_v7_api_routes,
         test_frontend_v7_panels,
+        test_paste_image_handler,
+        test_echo_mode_warning,
+        test_image_description_builder,
     ]
 
     for test_fn in tests:
