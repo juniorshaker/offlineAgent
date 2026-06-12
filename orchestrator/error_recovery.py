@@ -29,6 +29,9 @@ def _infer_unsupported_type(error_message: str) -> str | None:
     for keyword, ctype in ERROR_TYPE_MAP.items():
         if keyword in lower:
             return ctype
+    # JSON parse errors (Expecting value, malformed JSON) often caused by
+    # multimodal content (images) hitting a non-vision API endpoint.
+    # Return None here; the caller should check for embedded images separately.
     return None
 
 
@@ -48,6 +51,32 @@ def _save_capabilities(base_dir: Path, caps: dict):
     path = base_dir / CAPABILITIES_FILE
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(caps, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+def _has_embedded_images(messages: list[dict]) -> bool:
+    """Check if any message contains image content blocks or data URLs."""
+    import re
+    for msg in messages:
+        content = msg.get("content", "")
+        if isinstance(content, list):
+            for block in content:
+                if isinstance(block, dict):
+                    if "image_url" in block or block.get("type", "") == "image_url":
+                        return True
+        elif isinstance(content, str):
+            if re.search(r'data:image/[^;]+;base64,[A-Za-z0-9+/=]+', content):
+                return True
+    return False
+
+
+def _is_json_parse_error(error_message: str) -> bool:
+    """Check if error is a JSON parsing error (empty/malformed API response)."""
+    lower = error_message.lower()
+    json_err_keywords = [
+        "expecting value", "json", "decode", "empty response",
+        "malformed", "parse error", "char 0",
+    ]
+    return any(kw in lower for kw in json_err_keywords)
 
 
 def observe_error(model: str, error_message: str, messages_snapshot: list[dict], base_dir: Path):
@@ -93,6 +122,10 @@ def check_before_send(model: str, messages: list[dict], base_dir: Path) -> list[
     unsupported = model_caps.get("unsupported", [])
 
     if not unsupported:
+        # Even without known capabilities, check for embedded images
+        # which can cause JSON parse errors on non-vision models
+        if _has_embedded_images(messages):
+            return _strip_unsupported(messages, ["image"])
         return None
 
     return _strip_unsupported(messages, unsupported)
@@ -105,6 +138,11 @@ def repair_after_error(model: str, error_message: str, messages: list[dict], bas
     unsupported_type = _infer_unsupported_type(error_message)
     if unsupported_type:
         return _strip_unsupported(messages, [unsupported_type])
+
+    # JSON parse errors often caused by multimodal content in non-vision models
+    if _is_json_parse_error(error_message) and _has_embedded_images(messages):
+        return _strip_unsupported(messages, ["image"])
+
     return messages
 
 

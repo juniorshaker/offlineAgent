@@ -57,7 +57,7 @@
   var currentAgentMsg  = null;
   var abortController  = null;
   var sseReader        = null;
-  var sidebarOpen      = false;
+  var sidebarOpen      = true;
   var activeTab        = 'files';
   var currentDir       = '';
   var uploadedFiles    = [];
@@ -71,6 +71,8 @@
   fetchStatus();
   fetchSkills();
   inputEl.focus();
+  navigateTo('/');
+  switchTab('files');
 
   // === Event Listeners ===
   sendBtn.addEventListener('click', sendMessage);
@@ -479,6 +481,10 @@
     sidebar.classList.remove('hidden');
     sidebarOpen = true;
     if (!activeTab) switchTab('files');
+    // Auto-navigate to files root if not yet loaded
+    if (activeTab === 'files' && !currentDir) {
+      navigateTo('/');
+    }
     if (window.innerWidth <= 900) {
       var overlay = document.querySelector('.sidebar-overlay');
       if (!overlay) {

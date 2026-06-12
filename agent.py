@@ -47,6 +47,7 @@ from Offlineagent.tool_layer import file_tools
 from Offlineagent.tool_layer import shell_tools
 from Offlineagent.tool_layer import document_tools
 from Offlineagent.tool_layer import browser_tools
+from Offlineagent.tool_layer import db_tools
 
 # Memory layer
 from Offlineagent.memory_layer.memory_store import MemoryStore
@@ -616,6 +617,42 @@ def register_tools(registry: ToolRegistry, config: dict, base_dir: Path):
             "Fill a PowerPoint (.pptx) template with field values and save",
             lambda path, fields, template_path: document_tools.write_pptx(path, fields, template_path, base_dir),
             {"path": "Output .pptx path", "fields": "JSON string of key-value pairs", "template_path": "Template .pptx file path"},
+        ),
+
+        "db_connect": (
+            "Connect to a database (MySQL/TDSQL/GBase/Oracle/GCDW)",
+            lambda engine, host, port, user, password, database: db_tools.db_connect(engine, host, port, user, password, database),
+            {"engine": "mysql|tdsql|gbase|oracle|gcdw", "host": "IP or hostname", "port": "Port", "user": "Username", "password": "Password", "database": "Database name"},
+        ),
+        "db_list_procedures": (
+            "List stored procedures in the connected database",
+            lambda filter="": db_tools.db_list_procedures(filter),
+            {"filter": "Optional name filter"},
+        ),
+        "db_get_procedure": (
+            "Get full definition of a stored procedure",
+            lambda name: db_tools.db_get_procedure(name),
+            {"name": "Procedure name"},
+        ),
+        "db_list_tables": (
+            "List tables and views in the connected database",
+            lambda filter="": db_tools.db_list_tables(filter),
+            {"filter": "Optional name filter"},
+        ),
+        "db_query": (
+            "Run a read-only SELECT query (safely limited)",
+            lambda sql, limit=100: db_tools.db_query(sql, limit),
+            {"sql": "SELECT query", "limit": "Max rows (default 100)"},
+        ),
+        "db_status": (
+            "Show database connection status",
+            lambda: db_tools.db_status(),
+            {},
+        ),
+        "db_disconnect": (
+            "Close all database connections",
+            lambda: db_tools.db_disconnect(),
+            {},
         ),
     }
 

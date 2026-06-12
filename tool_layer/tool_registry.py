@@ -22,7 +22,11 @@ class ToolRegistry:
     def __init__(self):
         self._tools: dict[str, ToolDef] = {}
 
-    def register(self, name: str, description: str, func: Callable, params: dict[str, str] | None = None):
+    def register(self, name: str, description: str = "", func: Callable = None, params: dict[str, str] | None = None):
+        # Allow calling as register(name, func) for convenience
+        if func is None and callable(description):
+            func = description
+            description = ""
         self._tools[name] = ToolDef(name, description, func, params)
 
     def get(self, name: str) -> ToolDef | None:

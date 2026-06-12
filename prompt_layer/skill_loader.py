@@ -210,3 +210,66 @@ def get_skill_body(skill: Skill) -> str:
         return body.strip()
     except Exception:
         return skill.body
+
+
+def match_skills(user_input: str, skills: list[Skill], max_skills: int = 3) -> list[Skill]:
+    """Match user input against loaded skills and return the best-matching ones.
+
+    Matching logic (ordered by priority):
+    1. Exact keyword match in frontmatter 'triggers' field
+    2. Keyword match in 'applicable' field
+    3. Skill name appears in user input
+    4. Skill description keyword overlap with user input
+    5. Explicitly bypass skills whose 'not_applicable' field matches
+
+    Returns at most max_skills matches, sorted by relevance score descending.
+    """
+    if not user_input or not skills:
+        return []
+
+    user_lower = user_input.lower()
+    scored: list[tuple[int, Skill]] = []
+
+    for skill in skills:
+        fm = skill.frontmatter
+        score = 0
+
+        # Check not_applicable first -- if matched, skip this skill entirely
+        not_applicable = fm.get("not_applicable", "").lower()
+        if not_applicable:
+            not_keywords = [kw.strip().lower() for kw in not_applicable.split(",") if kw.strip()]
+            if any(kw in user_lower for kw in not_keywords):
+                continue  # Explicitly not applicable
+
+        # 1. Triggers match (highest weight: 10 per trigger keyword)
+        triggers = fm.get("triggers", "").lower()
+        if triggers:
+            trigger_kws = [kw.strip().lower() for kw in triggers.split(",") if kw.strip()]
+            for kw in trigger_kws:
+                if kw and kw in user_lower:
+                    score += 10
+
+        # 2. Applicable match (medium weight: 5 per keyword)
+        applicable = fm.get("applicable", "").lower()
+        if applicable:
+            app_kws = [kw.strip().lower() for kw in applicable.split(",") if kw.strip()]
+            for kw in app_kws:
+                if kw and kw in user_lower:
+                    score += 5
+
+        # 3. Skill name in user input (medium-high: 8)
+        if skill.name.lower() in user_lower:
+            score += 8
+
+        # 4. Description keyword overlap (low weight: 2 per word)
+        desc_words = set(skill.description.lower().split())
+        user_words = set(user_lower.split())
+        meaningful_overlap = sum(1 for w in desc_words & user_words if len(w) >= 3)
+        score += meaningful_overlap * 2
+
+        if score > 0:
+            scored.append((score, skill))
+
+    # Sort by score descending, take top N
+    scored.sort(key=lambda x: x[0], reverse=True)
+    return [s for _, s in scored[:max_skills]]

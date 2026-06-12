@@ -87,6 +87,13 @@ tools:
     - browser_get_html
     - browser_exec
     - browser_status
+    - db_connect
+    - db_list_procedures
+    - db_get_procedure
+    - db_list_tables
+    - db_query
+    - db_status
+    - db_disconnect
   shell:
     allowed:
       - mvn

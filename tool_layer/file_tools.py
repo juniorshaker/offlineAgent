@@ -116,7 +116,7 @@ def search_code(pattern: str, path: str = ".") -> str:
     try:
         result = subprocess.run(
             ["rg", "--no-heading", "-n", "--max-count=30", pattern, str(p)],
-            capture_output=True, text=True, timeout=10,
+            capture_output=True, text=True, timeout=10, encoding="utf-8", errors="replace",
         )
         if result.returncode in (0, 1):
             output = result.stdout.strip()

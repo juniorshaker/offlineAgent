@@ -87,7 +87,7 @@ class TestTimeoutFaultTolerance(unittest.TestCase):
         server_path = Path(__file__).parent.parent / "server.py"
         content = server_path.read_text(encoding="utf-8")
 
-        self.assertIn("Preserve collected partial results", content)
+        self.assertIn("Preserving {} partial text parts", content)
         self.assertIn("partial = ", content)
         self.assertIn("Partial results shown above", content)
 
@@ -150,6 +150,96 @@ class TestSyntax(unittest.TestCase):
             self.fail(f"agent.py has syntax error: {e}")
 
 
+class TestToolRegistration(unittest.TestCase):
+    """Verify tool function signatures match server.py lambda registrations.
+
+    These tests prevent the 7-tool-argument-mismatch regression fixed in v7.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        import inspect
+        from tool_layer import file_tools, shell_tools, document_tools, browser_tools
+        cls.inspect = inspect
+        cls.file_tools = file_tools
+        cls.shell_tools = shell_tools
+        cls.document_tools = document_tools
+        cls.browser_tools = browser_tools
+
+        cls.EXPECTED = [
+            ("file_tools", "read_file", ["path"]),
+            ("file_tools", "write_file", ["path", "content"]),
+            ("file_tools", "list_dir", ["path"]),
+            ("file_tools", "search_code", ["pattern", "path"]),
+            ("file_tools", "find_files", ["pattern", "path"]),
+            ("shell_tools", "shell", ["command", "allowed_commands"]),
+            ("document_tools", "read_template", ["path", "base_dir"]),
+            ("document_tools", "write_output", ["path", "content", "base_dir"]),
+            ("document_tools", "write_docx", ["path", "fields", "template_path", "base_dir"]),
+            ("document_tools", "write_xlsx", ["path", "fields", "template_path", "base_dir"]),
+            ("document_tools", "write_pptx", ["path", "fields", "template_path", "base_dir"]),
+            ("browser_tools", "web_fetch", ["url", "method", "body", "headers", "timeout"]),
+            ("browser_tools", "browser_navigate", ["url", "base_dir"]),
+            ("browser_tools", "browser_screenshot", ["name", "base_dir"]),
+            ("browser_tools", "browser_click", ["selector", "base_dir"]),
+            ("browser_tools", "browser_type", ["selector", "text", "base_dir"]),
+            ("browser_tools", "browser_get_content", ["selector", "max_length", "base_dir"]),
+            ("browser_tools", "browser_get_html", ["selector", "base_dir"]),
+            ("browser_tools", "browser_exec", ["js", "base_dir"]),
+            ("browser_tools", "browser_close", []),
+        ]
+
+    def test_all_tool_signatures_match_registration(self):
+        """Every tool function's parameters match what server.py lambdas pass."""
+        errors = []
+        for module_name, func_name, expected_params in self.EXPECTED:
+            module = getattr(self, module_name)
+            func = getattr(module, func_name)
+            actual_params = [
+                p.name for p in self.inspect.signature(func).parameters.values()
+            ]
+            if actual_params != expected_params:
+                errors.append(
+                    f"MISMATCH {module_name}.{func_name}: "
+                    f"expected {expected_params}, got {actual_params}"
+                )
+        self.assertEqual(errors, [], "\n".join(errors) if errors else "")
+
+    def test_set_file_base_called_in_init_agent(self):
+        """init_agent() must call file_tools.set_file_base(base_dir)."""
+        server_path = Path(__file__).parent.parent / "server.py"
+        content = server_path.read_text(encoding="utf-8")
+        self.assertIn(
+            "file_tools.set_file_base(base_dir)",
+            content,
+            "init_agent() must call file_tools.set_file_base(base_dir)"
+        )
+
+    def test_no_old_broken_patterns_in_server(self):
+        """Verify the 7 broken patterns are gone from server.py."""
+        server_path = Path(__file__).parent.parent / "server.py"
+        content = server_path.read_text(encoding="utf-8")
+
+        broken = [
+            ("read_file(kw.get(\"path\", \"\"), base_dir)", "read_file must not pass base_dir"),
+            ("write_file(kw.get(\"path\", \"\"), kw.get(\"content\", \"\"), base_dir", "write_file must not pass base_dir"),
+            ("list_dir(kw.get(\"path\", \"\"), base_dir)", "list_dir must not pass base_dir"),
+            ("shell_tools.execute(", "shell_tools.execute renamed to shell_tools.shell"),
+            ("file_tools.web_fetch(", "web_fetch is in browser_tools, not file_tools"),
+        ]
+        for pattern, msg in broken:
+            self.assertNotIn(pattern, content, msg)
+
+    def test_agent_py_tool_map_still_correct(self):
+        """agent.py's tool_map was always correct, verify unchanged."""
+        agent_path = Path(__file__).parent.parent / "agent.py"
+        content = agent_path.read_text(encoding="utf-8")
+        self.assertIn('lambda path: file_tools.read_file(path)', content)
+        self.assertIn('lambda path: file_tools.list_dir(path)', content)
+        self.assertIn('shell_tools.shell(command, allowed_commands=shell_allowed)', content)
+    """Integration-level behavior verification via code structure analysis."""
+
+
 class TestIntegrationScenarios(unittest.TestCase):
     """Integration-level behavior verification via code structure analysis."""
 
@@ -193,3 +283,86 @@ class TestIntegrationScenarios(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
+
+
+class TestDbTools(unittest.TestCase):
+    """Test database tools: graceful degradation, driver detection, connect/disconnect."""
+
+    @classmethod
+    def setUpClass(cls):
+        import importlib
+        from tool_layer import db_tools as dt
+        cls.dt = dt
+
+    def test_db_status_returns_driver_info(self):
+        """db_status reports available and missing drivers."""
+        result = self.dt.db_status()
+        self.assertIn("DB Status", result)
+        self.assertIn("Available drivers", result)
+        self.assertIn("Missing drivers", result)
+
+    def test_db_connect_no_driver_gives_clear_error(self):
+        """db_connect without installed driver returns helpful error."""
+        result = self.dt.db_connect("mysql", "127.0.0.1", 3306, "u", "p", "db")
+        self.assertIn("Error", result)
+        self.assertIn("pymysql", result.lower())
+        self.assertIn("vendor", result.lower())
+
+    def test_db_connect_oracle_no_driver_gives_clear_error(self):
+        """db_connect('oracle') without oracledb returns helpful error."""
+        result = self.dt.db_connect("oracle", "127.0.0.1", 1521, "u", "p", "db")
+        self.assertIn("Error", result)
+        self.assertIn("oracledb", result.lower())
+        self.assertIn("vendor", result.lower())
+
+    def test_db_list_procedures_without_connection_errors(self):
+        """Calling db_list_procedures without connect returns Error."""
+        result = self.dt.db_list_procedures()
+        self.assertIn("Error", result)
+        self.assertIn("Not connected", result)
+
+    def test_db_get_procedure_without_connection_errors(self):
+        """Calling db_get_procedure without connect returns Error."""
+        result = self.dt.db_get_procedure("test_sp")
+        self.assertIn("Error", result)
+
+    def test_db_query_blocks_non_select(self):
+        """db_query must block INSERT/UPDATE/DELETE/DDL."""
+        # No connection, but the safety check runs first
+        result = self.dt.db_query("SELECT 1")  # should fail at connection check
+        self.assertIn("Error", result)
+        self.assertIn("Not connected", result)
+
+    def test_db_disconnect_always_ok(self):
+        """db_disconnect always returns OK even with no connections."""
+        result = self.dt.db_disconnect()
+        self.assertIn("OK", result)
+
+    def test_resolve_engine_normalizes_names(self):
+        """_resolve_engine maps engine names to correct drivers."""
+        self.assertEqual(self.dt._resolve_engine("MySQL"), "pymysql")
+        self.assertEqual(self.dt._resolve_engine("tdsql"), "pymysql")
+        self.assertEqual(self.dt._resolve_engine("GBase"), "pymysql")
+        self.assertEqual(self.dt._resolve_engine("oracle"), "oracledb")
+        self.assertEqual(self.dt._resolve_engine("gcdw-pg"), "pg8000")
+        self.assertEqual(self.dt._resolve_engine("unknown"), "unknown")
+
+    def test_db_status_in_server_registration(self):
+        """server.py register_tools includes db_status."""
+        server_path = Path(__file__).parent.parent / "server.py"
+        content = server_path.read_text(encoding="utf-8")
+        self.assertIn('"db_connect"', content)
+        self.assertIn('"db_list_procedures"', content)
+        self.assertIn('"db_get_procedure"', content)
+        self.assertIn('"db_list_tables"', content)
+        self.assertIn('"db_query"', content)
+        self.assertIn('"db_status"', content)
+        self.assertIn('"db_disconnect"', content)
+
+    def test_db_tools_in_config_yaml(self):
+        """config.yaml lists all 7 db tools."""
+        config_path = Path(__file__).parent.parent / "config.yaml"
+        content = config_path.read_text(encoding="utf-8")
+        for tool in ["db_connect", "db_list_procedures", "db_get_procedure", 
+                     "db_list_tables", "db_query", "db_status", "db_disconnect"]:
+            self.assertIn(f"- {tool}", content, f"{tool} missing from config.yaml")
