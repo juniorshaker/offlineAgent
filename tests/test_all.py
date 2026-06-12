@@ -1473,6 +1473,97 @@ def test_image_description_builder():
 
 
 
+
+
+def test_llm_empty_response_scenarios():
+    """Test handling of empty/null LLM responses (tool_calls, reasoning, errors)."""
+    _header("30. LLM Empty Response Handling (v8)")
+    from Offlineagent.agent import parse_llm_response_body
+
+    # 30.1 Scenario B: OpenAI-style tool_calls with null content
+    body_tool_calls = {
+        "choices": [{
+            "finish_reason": "tool_calls",
+            "message": {
+                "content": None,
+                "tool_calls": [
+                    {
+                        "id": "call_1",
+                        "type": "function",
+                        "function": {
+                            "name": "search_code",
+                            "arguments": '{"pattern": "*.sql", "path": "/src"}'
+                        }
+                    }
+                ]
+            }
+        }]
+    }
+    result = parse_llm_response_body(body_tool_calls)
+    assert_in("tool_call", result, "converts tool_calls array to XML")
+    assert_in("search_code", result, "tool name preserved")
+    assert_in("*.sql", result, "arguments preserved in XML")
+    assert_in("/src", result, "path argument preserved")
+
+    # 30.2 Multi tool calls
+    body_multi = {
+        "choices": [{
+            "finish_reason": "tool_calls",
+            "message": {
+                "content": "",
+                "tool_calls": [
+                    {"id": "c1", "type": "function", "function": {"name": "list_dir", "arguments": '{"path": "."}'}},
+                    {"id": "c2", "type": "function", "function": {"name": "read_file", "arguments": '{"path": "test.sql"}'}}
+                ]
+            }
+        }]
+    }
+    result = parse_llm_response_body(body_multi)
+    assert_true(result.count("<tool_call>") == 2, "both tool calls converted")
+
+    # 30.3 Scenario A: reasoning_content only
+    body_reasoning = {
+        "choices": [{"message": {"content": "", "reasoning_content": "SQL analysis thinking..."}}]
+    }
+    result = parse_llm_response_body(body_reasoning)
+    assert_in("SQL", result, "reasoning_content used when content empty")
+
+    # 30.4 Content present takes priority over reasoning
+    body_both = {
+        "choices": [{"message": {"content": "Final answer.", "reasoning_content": "thinking..."}}]
+    }
+    result = parse_llm_response_body(body_both)
+    assert_in("Final answer", result, "content takes priority over reasoning")
+    assert_not_in("thinking", result, "reasoning excluded when content exists")
+
+    # 30.5 Scenario C: finish_reason=length (truncation)
+    body_length = {"choices": [{"finish_reason": "length", "message": {"content": ""}}]}
+    result = parse_llm_response_body(body_length)
+    assert_in("truncated", result, "length=capped diagnostic")
+    assert_in("max_tokens", result, "max_tokens mentioned")
+
+    # 30.6 Scenario C: finish_reason=content_filter
+    body_filter = {"choices": [{"finish_reason": "content_filter", "message": {"content": ""}}]}
+    result = parse_llm_response_body(body_filter)
+    assert_in("content filter", result, "content_filter diagnostic")
+
+    # 30.7 Scenario D: normal content
+    body_normal = {"choices": [{"message": {"content": "SELECT * FROM users;"}}]}
+    result = parse_llm_response_body(body_normal)
+    assert_in("SELECT", result, "normal content returned")
+
+    # 30.8 Legacy API: response key
+    body_legacy = {"response": "legacy response"}
+    result = parse_llm_response_body(body_legacy)
+    assert_in("legacy", result, "legacy response key")
+
+    # 30.9 Unknown format: JSON dump
+    body_unknown = {"custom": {"nested": "data"}}
+    result = parse_llm_response_body(body_unknown)
+    assert_in("data", result, "unknown format dumped")
+
+
+
 def run_all():
     print("\n" + "=" * 60)
     print("  OfflineAgent — Complete Test Suite")
@@ -1510,6 +1601,7 @@ def run_all():
         test_paste_image_handler,
         test_echo_mode_warning,
         test_image_description_builder,
+        test_llm_empty_response_scenarios,
     ]
 
     for test_fn in tests:

@@ -225,7 +225,8 @@ def _llm_call_with_timeout(llm_fn, messages, timeout_sec: int, req_id: str = "")
                 continue  # retry
             return f"[LLM Error] {err_str}"
 
-        return result_container["response"] or ""
+        # Safety net: llm_fn should never return empty, but surface it if it does
+        return result_container["response"] or "[LLM Error] Empty response from LLM function"
 
     # All retries exhausted
     with _cancel_lock:

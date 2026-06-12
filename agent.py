@@ -240,6 +240,90 @@ def _parse_nested(lines: list) -> dict:
 
 # -- LLM Client --
 
+
+def parse_llm_response_body(body: dict, logger=None) -> str:
+    """Parse an LLM API response body into a text string.
+
+    Handles five scenarios:
+    A. Normal content string -> returned as-is
+    B. OpenAI-style tool_calls array (content is null) -> convert to XML
+    C. Thinking/reasoning models (reasoning_content present)
+    D. Empty content with finish_reason -> diagnostic error
+    E. Delta content (streaming aggregation)
+
+    Guaranteed to never return an empty string or None.
+    """
+    import json as _json_lib
+
+    if not isinstance(body, dict):
+        return str(body) if body else "[LLM Error] Non-dict response body"
+
+    if "choices" in body and len(body["choices"]) > 0:
+        choice = body["choices"][0]
+        msg = choice.get("message", {})
+        result_text = msg.get("content") or ""
+
+        # --- Scenario B: tool_calls array ---
+        tool_calls_arr = msg.get("tool_calls", [])
+        if (not result_text) and tool_calls_arr:
+            xml_parts = []
+            for tc in tool_calls_arr:
+                fn = tc.get("function", {})
+                name = fn.get("name", "unknown")
+                args_str = fn.get("arguments", "{}")
+                try:
+                    args = _json_lib.loads(args_str) if isinstance(args_str, str) else args_str
+                except Exception:
+                    args = {}
+                params_xml = "".join(
+                    f'<param name="{k}">{v}</param>' for k, v in args.items()
+                )
+                xml_parts.append(f"<tool_call><name>{name}</name>{params_xml}</tool_call>")
+            result_text = "\n".join(xml_parts)
+
+        # --- Scenario C: reasoning_content ---
+        if (not result_text) and msg.get("reasoning_content"):
+            result_text = str(msg["reasoning_content"])
+
+        # --- Scenario E: delta.content ---
+        if (not result_text) and msg.get("delta"):
+            delta_content = msg["delta"].get("content")
+            if delta_content:
+                result_text = str(delta_content)
+
+        # --- Scenario D: empty content diagnostics ---
+        if not result_text:
+            finish_reason = choice.get("finish_reason", "unknown")
+            if finish_reason == "length":
+                result_text = "[LLM Error] Response truncated: max_tokens limit reached."
+            elif finish_reason == "content_filter":
+                result_text = "[LLM Error] Response blocked by content filter."
+            elif finish_reason == "stop":
+                result_text = "[LLM Error] Empty content with finish_reason=stop. Body: " + str(body)[:300]
+            else:
+                result_text = "[LLM Error] Empty content (finish_reason=" + str(finish_reason) + "). Body: " + str(body)[:300]
+
+        return result_text or "[LLM Error] parse_llm_response_body produced empty result"
+
+    elif "response" in body:
+        val = body["response"]
+        return val if val else "[LLM Error] Empty 'response' field in API response"
+
+    elif "content" in body:
+        val = body["content"]
+        return val if val else "[LLM Error] Empty 'content' field in API response"
+
+    elif "error" in body:
+        err = body["error"]
+        if isinstance(err, dict):
+            return "[LLM Error] " + err.get("message", str(err))
+        return "[LLM Error] " + str(err)
+
+    else:
+        dumped = _json_lib.dumps(body, ensure_ascii=False)
+        return dumped if len(dumped) > 2 else "[LLM Error] Unrecognized response: " + dumped
+
+
 def create_llm_chat_fn(config: dict, logger=None, token_tracker=None):
     """Create a closure that calls the configured LLM API.
 
@@ -363,17 +447,6 @@ def create_llm_chat_fn(config: dict, logger=None, token_tracker=None):
         if api_key:
             headers["Authorization"] = f"Bearer {api_key}"
 
-        # --- Pre-flight connectivity check (5s timeout) ---
-        # Detects dead connections fast instead of waiting full timeout
-        try:
-            ping_data = {"model": model, "messages": [{"role": "user", "content": "ping"}],
-                         "max_tokens": 1, "stream": False}
-            requests.post(url, headers=headers, json=ping_data, timeout=5)
-        except requests.ConnectionError as e:
-            return f"[LLM Error] Connection lost - cannot reach LLM API: {e}"
-        except Exception:
-            pass  # Pre-flight non-critical: proceed with main request
-
         data = {"model": model, "messages": messages}
 
         try:
@@ -390,33 +463,24 @@ def create_llm_chat_fn(config: dict, logger=None, token_tracker=None):
                 err_detail = body if isinstance(body, str) else str(body)[:300]
                 return f"[LLM Error] HTTP {resp.status_code}: {err_detail}"
 
-            # Handle common API response formats
-            if "choices" in body and len(body["choices"]) > 0:
-                choice = body["choices"][0]
-                msg = choice.get("message", {})
-                result_text = msg.get("content", "")
+            # Parse response using centralized parser (handles tool_calls, reasoning, etc.)
+            result_text = parse_llm_response_body(body, logger)
 
-                # Capture token usage from API response
-                if token_tracker and "usage" in body:
-                    try:
-                        usage = body["usage"]
-                        token_tracker.record(
-                            backend=_active,
-                            model=model,
-                            prompt_tokens=usage.get("prompt_tokens", 0),
-                            completion_tokens=usage.get("completion_tokens", 0),
-                            total_tokens=usage.get("total_tokens", 0),
-                        )
-                    except Exception:
-                        pass  # Token tracking failure must not affect chat
+            # Capture token usage from API response
+            if token_tracker and "usage" in body:
+                try:
+                    usage = body["usage"]
+                    token_tracker.record(
+                        backend=_active,
+                        model=model,
+                        prompt_tokens=usage.get("prompt_tokens", 0),
+                        completion_tokens=usage.get("completion_tokens", 0),
+                        total_tokens=usage.get("total_tokens", 0),
+                    )
+                except Exception:
+                    pass  # Token tracking failure must not affect chat
 
-                return result_text
-            elif "response" in body:
-                return body["response"]
-            elif "content" in body:
-                return body["content"]
-            else:
-                return _json.dumps(body, ensure_ascii=False)
+            return result_text
 
         except requests.ConnectionError as e:
             return f"[LLM Error] Connection failed: {e}"
