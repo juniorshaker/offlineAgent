@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+﻿#!/usr/bin/env python3
 """
 server.py - OfflineAgent Web Server
 
@@ -41,7 +41,7 @@ from Offlineagent.prompt_layer.skill_loader import load_all_skills
 from Offlineagent.prompt_layer.system_prompt import build_system_prompt
 from Offlineagent.orchestrator.state_manager import StateManager
 from Offlineagent.orchestrator.context_compressor import compress_history
-from Offlineagent.orchestrator.error_recovery import check_before_send
+from Offlineagent.orchestrator.error_recovery import check_before_send, repair_after_error
 from Offlineagent.tool_layer.tool_registry import ToolRegistry
 from Offlineagent.tool_layer.tool_parser import parse_tool_calls, has_tool_calls, extract_text_without_tools
 from Offlineagent.tool_layer import file_tools, shell_tools, document_tools, browser_tools
@@ -318,9 +318,43 @@ def get_or_create_state() -> StateManager:
     return _server_state["state"]
 
 
+def _prepare_user_content(user_input: str):
+    """Convert text with embedded image data URLs to multimodal content.
+
+    Detects data:image/...;base64,... patterns and builds a multimodal
+    content array compatible with OpenAI and Qwen vision APIs.
+    Returns str if no images found, or list of content blocks if images present.
+    """
+    import re
+    IMG_PATTERN = r'(data:image/[^;]+;base64,[A-Za-z0-9+/=]+)'
+
+    matches = list(re.finditer(IMG_PATTERN, user_input))
+    if not matches:
+        return user_input
+
+    content = []
+    last_end = 0
+    for m in matches:
+        text_before = user_input[last_end:m.start()].strip()
+        if text_before:
+            content.append({"type": "text", "text": text_before})
+        content.append({
+            "type": "image_url",
+            "image_url": {"url": m.group(0)}
+        })
+        last_end = m.end()
+    text_after = user_input[last_end:].strip()
+    if text_after:
+        content.append({"type": "text", "text": text_after})
+
+    return content
+
+
 def build_messages(system_prompt: str, state: StateManager, user_input: str, config: dict, req_id: str = "") -> list[dict]:
     """Build the full message list for the LLM API call."""
-    state.add_user_message(user_input)
+    # Convert embedded images to multimodal content blocks
+    user_content = _prepare_user_content(user_input)
+    state.add_user_message(user_content)
 
     model = _get_active_model_name()
     messages = state.get_history_for_api(system_prompt)
@@ -507,6 +541,16 @@ def run_tool_loop(messages: list[dict], system_prompt: str, state: StateManager,
                 return "[Error] No response from LLM."
 
             if response.startswith("[Timeout]") or response.startswith("[LLM Error]"):
+                # Try error recovery: record capability, strip unsupported content, retry
+                model = _get_active_model_name()
+                non_system = [m for m in messages if m["role"] != "system"]
+                repaired = repair_after_error(model, response, non_system, _AGENT_DIR / "memory")
+                if repaired != non_system:
+                    _log("Auto-repaired: stripped unsupported content, retrying...", "INFO", req_id)
+                    state.messages = [m for m in state.messages if m["role"] == "system"] + repaired
+                    messages = state.get_history_for_api(system_prompt)
+                    continue
+
                 _log("LLM error response: {}".format(response[:100]), "ERROR", req_id)
                 # Preserve collected partial results instead of discarding them
                 if final_parts:
@@ -1445,3 +1489,5 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+

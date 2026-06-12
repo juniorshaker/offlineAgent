@@ -725,7 +725,7 @@
     for (var i = 0; i < uploadedFiles.length; i++) {
       var f = uploadedFiles[i];
       if (f.isImage) {
-        fullContent += '[Uploaded image: ' + f.name + ']\n';
+        fullContent += '[Uploaded image: ' + f.name + ']\n' + f.content + '\n';
       } else {
         fullContent += '[Uploaded file: ' + f.name + ']\n```\n' +
           (typeof f.content === 'string' ? f.content.slice(0, 8000) : '[binary]') + '\n```\n\n';
