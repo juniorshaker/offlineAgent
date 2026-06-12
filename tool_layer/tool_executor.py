@@ -7,7 +7,7 @@ Now with token budget control and cycle detection (v6).
 import threading
 
 from .tool_registry import ToolRegistry
-from .tool_parser import parse_tool_calls, extract_text_without_tools, has_tool_calls
+from .tool_parser import parse_tool_calls_full, extract_text_without_tools, has_tool_calls
 
 
 def _llm_call_with_timeout(llm_fn, messages, timeout_sec: int) -> str:
@@ -171,7 +171,7 @@ def execute_tool_loop(
             break
 
         # Parse and execute tools
-        tool_calls = parse_tool_calls(response)
+        tool_calls = parse_tool_calls_full(response)
         text_part = extract_text_without_tools(response)
         if text_part:
             final_text_parts.append(text_part)

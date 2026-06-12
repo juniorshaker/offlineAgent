@@ -43,7 +43,7 @@ from Offlineagent.orchestrator.state_manager import StateManager
 from Offlineagent.orchestrator.context_compressor import compress_history
 from Offlineagent.orchestrator.error_recovery import check_before_send, repair_after_error
 from Offlineagent.tool_layer.tool_registry import ToolRegistry
-from Offlineagent.tool_layer.tool_parser import parse_tool_calls, has_tool_calls, extract_text_without_tools
+from Offlineagent.tool_layer.tool_parser import parse_tool_calls_full, has_tool_calls, extract_text_without_tools
 from Offlineagent.tool_layer import file_tools, shell_tools, document_tools, browser_tools
 from Offlineagent.memory_layer.memory_store import MemoryStore
 from Offlineagent.metrics.token_tracker import TokenTracker
@@ -573,7 +573,7 @@ def run_tool_loop(messages: list[dict], system_prompt: str, state: StateManager,
                 final_parts.append(response)
                 break
 
-            tool_calls = parse_tool_calls(response)
+            tool_calls = parse_tool_calls_full(response)
             text_part = extract_text_without_tools(response)
             if text_part:
                 final_parts.append(text_part)
