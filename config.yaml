@@ -1,4 +1,4 @@
-# =============================================================================
+﻿# =============================================================================
 # OfflineAgent Configuration
 # =============================================================================
 
@@ -37,6 +37,12 @@ agent:
   max_tool_iterations: 50
   system_prompt_extra: ""
 
+
+  # Skill auto-injection via keyword pre-filter + LLM final pick
+  skill_injection:
+    enabled: true
+    llm_selection: true        # When 2+ candidates, use LLM to pick best
+    llm_selection_timeout: 15   # seconds for the tiny selection call
   compression:
     enabled: true
     trigger_ratio: 0.7
@@ -116,3 +122,46 @@ logging:
   max_log_files: 7
   console: true
   file: true
+
+# =============================================================================
+# Skill keyword mapping (pre-filter for auto-injection)
+# When user input matches a keyword, the corresponding skill becomes a candidate.
+# If multiple candidates match, LLM picks the best one.
+# =============================================================================
+skill_keywords:
+  java-crypto-audit:          ["加密", "aes", "rsa", "sm4", "密钥", "crypto"]
+  java-concurrency-safety:    ["死锁", "线程安全", "completablefuture", "并发", "concurrent"]
+  java-performance-audit:     ["时间复杂度", "性能瓶颈", "performance", "latency"]
+  java-jvm-memory:            ["gc", "内存泄漏", "threadlocal", "堆内存", "jvm", "oom"]
+  java-springboot-analysis:   ["@transactional", "bean", "spring", "boot", "ioc", "aop", "autowired"]
+  java-mybatis-analysis:      ["mybatis", "mapper", "xml", "sql映射", "orm"]
+  java-annotation-aop:        ["@around", "@before", "切面", "注解", "反射", "interceptor"]
+  java-oop-patterns:          ["设计模式", "solid", "多态", "继承", "封装", "面向对象"]
+  java-collections-analysis:  ["hashmap", "arraylist", "concurrenthashmap", "集合", "list", "map", "set"]
+  java-api-optimization:      ["controller", "rest api", "接口规范", "restful", "api设计", "swagger"]
+  java-code-refactoring:      ["重构", "重复代码", "冗余", "clean code"]
+  java-code-standards:        ["阿里巴巴", "编码规范", "命名规范", "checkstyle", "sonar"]
+  java-null-safety:           ["nullpointer", "npe", "空指针", "边界条件", "optional", "null"]
+  java-exception-debugging:   ["stacktrace", "堆栈", "报错", "异常", "exception", "error"]
+  java-branch-analysis:       ["if-else", "switch", "分支", "条件覆盖", "分支覆盖"]
+  java-call-chain:            ["调用链", "调用链路", "循环依赖", "依赖图"]
+  java-code-reading:          ["梳理逻辑", "分析代码", "代码做了什么", "看看代码", "看懂", ".java", "java"]
+  java-security-suite:        ["安全审计", "漏洞扫描", "安全", "security"]
+  java-deep-source-suite:     ["深度源码", "全链路分析", "深度分析"]
+  java-performance-concurrency-suite: ["高并发", "吞吐", "压测", "性能优化"]
+  java-daily-business-suite:  ["日常审查", "全面检查", "代码审查", "review"]
+  java-development:           ["maven", "pom.xml", "gradle", "junit"]
+  java-sql-audit:             ["sql注入", "sql audit"]
+  sql-basic-query:            ["sql", "mysql", "crud", "增删改查", "select", "insert", "update", "delete", "分页", "limit"]
+  sql-complex-query:          ["join", "exists", "子查询", "窗口函数", "row_number", "rank", "case when", "执行计划", "explain"]
+  sql-scripts-procedures:     ["建表", "create table", "索引", "index", "存储过程", "function", "触发器", "迁移", "ddl", "事务"]
+  python-code-reading:        [".py", "python", "pandas", "numpy"]
+  python-daily-business-suite: ["pip", "poetry", "pyproject.toml", "requirements.txt"]
+  python-api-optimization:    ["fastapi", "flask", "django", "sqlalchemy"]
+  python-concurrency-safety:  ["asyncio", "gil", "celery"]
+  python-testing:             ["pytest", "unittest"]
+  python-type-safety:         ["pydantic", "mypy"]
+  python-code-standards:      ["pep8", "flake8", "ruff"]
+  python-performance-audit:   ["cprofile", "perf"]
+  diagrams:                   ["流程图", "架构图", "时序图", "er图", "mermaid", "diagram", "画图", "甘特图", "draw"]
+  doc-generation:             ["周报", "日报", "总结", "报告", "文档生成", "模板"]

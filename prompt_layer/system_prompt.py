@@ -78,7 +78,9 @@ def _build_skills_index(skills: list[Skill]) -> str:
     lines.append("- **Skills** listed above provide guidance and workflow instructions. They are NOT tools -- do NOT invoke them via <tool_call>.")
     lines.append("- To get a skill's full instructions, output: /skill <name> as a normal text command.")
     lines.append("- **Tools** (read_file, write_file, shell, search_code, etc.) are invoked via <tool_call> XML blocks.")
-    lines.append("- If a skill name matches the user's task, recommend it and let the user type /skill <name>.")
+    lines.append("- Skills that match the user's request are AUTO-INJECTED as `[Skill Context: name]` messages. Look for them in the conversation history -- no need to type /skill manually unless you want a different one.")
+    lines.append("- When you see `[Skill Context: xxx]` in the conversation, follow that skill's instructions as your primary workflow guide.")
+    lines.append("- If you receive a DIFFERENT skill than what you need, use /skill <name> to manually activate the correct one.")
     return "\n".join(lines)
 
 

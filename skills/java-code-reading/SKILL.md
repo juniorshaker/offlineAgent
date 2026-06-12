@@ -1,6 +1,9 @@
 ---
 name: java-code-reading
 description: Use when the user asks to analyze, review, read through, or understand Java code logic. Triggers on requests like "分析这段Java代码", "review this Java class", "帮我看看这个方法的逻辑", "梳理调用链路", or any task involving line-by-line Java code comprehension, execution flow mapping, branch analysis, and distinguishing business/utility/framework code.
+triggers: "分析代码, 梳理逻辑, 看看代码, 代码做了什么, .java, 看代码, 这个方法, 这个类"
+applicable: "User provides a Java file path or asks about the behavior/logic of specific Java code"
+not_applicable: "General Java questions without code context, Spring/MyBatis config questions, SQL queries, build/deploy issues, performance tuning"
 ---
 
 # Java 代码通读与逻辑梳理

@@ -1,6 +1,9 @@
 ---
 name: java-springboot-analysis
-description: Use when the user asks to analyze Spring/SpringBoot code, Bean lifecycle, dependency injection, transaction management, or AOP configuration. Triggers on requests like "SpringBoot代码分析", "@Transactional为什么没生效", "Bean循环依赖", "Spring配置不生效", "Spring Bean lifecycle", "事务传播机制". Also use for Controller/Service/Mapper layered architecture analysis and Spring-specific bug diagnosis.
+description: Use when the user asks to analyze Spring/SpringBoot code, Bean lifecycle, dependency injection, transaction management, or AOP configuration.
+triggers: "spring, @transactional, bean, ioc, autowired, 事务传播, controller, service, boot"
+applicable: "Spring/SpringBoot specific questions: Bean config, DI, transaction propagation, AOP, Spring Boot auto-config, layered architecture"
+not_applicable: "General Java code reading without Spring context, SQL queries, MyBatis XML mapping, generic code style checks"
 ---
 
 # SpringBoot 源码业务分析

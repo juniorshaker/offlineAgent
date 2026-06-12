@@ -228,233 +228,153 @@ class ChatLoop:
 
     # ── Turn handler ──
 
+
     # ── Auto skill injector ──
-    _CODE_KEYWORDS = [
-        # -- Precision match first (more specific → higher priority) --
-        # Security / Crypto
-        ("加密", "java-crypto-audit"),
-        ("aes", "java-crypto-audit"),
-        ("rsa", "java-crypto-audit"),
-        ("sm4", "java-crypto-audit"),
-        ("密钥", "java-crypto-audit"),
-        ("sql注入", "java-security-audit"),
-        ("xss", "java-security-audit"),
-        ("越权", "java-security-audit"),
-        ("owasp", "java-security-audit"),
-        # Performance / Concurrency
-        ("死锁", "java-concurrency-safety"),
-        ("线程安全", "java-concurrency-safety"),
-        ("completablefuture", "java-concurrency-safety"),
-        ("并发", "java-concurrency-safety"),
-        ("时间复杂度", "java-performance-audit"),
-        ("性能瓶颈", "java-performance-audit"),
-        ("gc", "java-jvm-memory"),
-        ("内存泄漏", "java-jvm-memory"),
-        ("threadlocal", "java-jvm-memory"),
-        ("堆内存", "java-jvm-memory"),
-        # Spring / MyBatis / AOP
-        ("@transactional", "java-springboot-analysis"),
-        ("bean", "java-springboot-analysis"),
-        ("事务", "java-springboot-analysis"),
-        ("spring", "java-springboot-analysis"),
-        ("mybatis", "java-mybatis-analysis"),
-        ("mapper", "java-mybatis-analysis"),
-        ("@around", "java-annotation-aop"),
-        ("切面", "java-annotation-aop"),
-        ("注解", "java-annotation-aop"),
-        ("反射", "java-annotation-aop"),
-        # OOP / Design Patterns
-        ("设计模式", "java-oop-patterns"),
-        ("solid", "java-oop-patterns"),
-        ("多态", "java-oop-patterns"),
-        ("继承", "java-oop-patterns"),
-        # Collections
-        ("hashmap", "java-collections-analysis"),
-        ("arraylist", "java-collections-analysis"),
-        ("concurrenthashmap", "java-collections-analysis"),
-        ("集合", "java-collections-analysis"),
-        # API / Controller
-        ("controller", "java-api-optimization"),
-        ("rest api", "java-api-optimization"),
-        ("接口规范", "java-api-optimization"),
-        # Refactoring / Standards
-        ("重构", "java-code-refactoring"),
-        ("重复代码", "java-code-refactoring"),
-        ("冗余", "java-code-refactoring"),
-        ("阿里巴巴", "java-code-standards"),
-        ("编码规范", "java-code-standards"),
-        ("命名规范", "java-code-standards"),
-        # Exception / Null Safety / Branch
-        ("nullpointer", "java-null-safety"),
-        ("npe", "java-null-safety"),
-        ("空指针", "java-null-safety"),
-        ("边界条件", "java-null-safety"),
-        ("stacktrace", "java-exception-debugging"),
-        ("堆栈", "java-exception-debugging"),
-        ("报错", "java-exception-debugging"),
-        ("异常", "java-exception-debugging"),
-        ("if-else", "java-branch-analysis"),
-        ("switch", "java-branch-analysis"),
-        ("分支", "java-branch-analysis"),
-        ("条件覆盖", "java-branch-analysis"),
-        # Call chain / Code reading
-        ("调用链", "java-call-chain"),
-        ("调用链路", "java-call-chain"),
-        ("循环依赖", "java-call-chain"),
-        ("梳理逻辑", "java-code-reading"),
-        ("分析代码", "java-code-reading"),
-        ("代码做了什么", "java-code-reading"),
-        ("看看代码", "java-code-reading"),
-        ("看懂", "java-code-reading"),
-        # Suites (comprehensive scans)
-        ("安全审计", "java-security-suite"),
-        ("漏洞扫描", "java-security-suite"),
-        ("深度源码", "java-deep-source-suite"),
-        ("全链路分析", "java-deep-source-suite"),
-        ("高并发", "java-performance-concurrency-suite"),
-        ("日常审查", "java-daily-business-suite"),
-        ("全面检查", "java-daily-business-suite"),
-        ("代码审查", "java-daily-business-suite"),
-        # -- Fallback (broad match last) --
-        (".java", "java-code-reading"),
-        ("java", "java-code-reading"),
-        ("maven", "java-development"),
-        ("pom.xml", "java-development"),
-        ("gradle", "java-development"),
-        ("junit", "java-development"),
-
-        # -- Python skills --
-        (".py", "python-code-reading"),
-        ("python", "python-code-reading"),
-        ("pip", "python-daily-business-suite"),
-        ("poetry", "python-daily-business-suite"),
-        ("pyproject.toml", "python-daily-business-suite"),
-        ("requirements.txt", "python-daily-business-suite"),
-        ("pyenv", "python-daily-business-suite"),
-        ("fastapi", "python-api-optimization"),
-        ("flask", "python-api-optimization"),
-        ("django", "python-api-optimization"),
-        ("starlette", "python-api-optimization"),
-        ("pydantic", "python-type-safety"),
-        ("mypy", "python-type-safety"),
-        ("pytest", "python-testing"),
-        ("unittest", "python-testing"),
-        ("asyncio", "python-concurrency-safety"),
-        ("gil", "python-concurrency-safety"),
-        ("pep8", "python-code-standards"),
-        ("flake8", "python-code-standards"),
-        ("ruff", "python-code-standards"),
-        ("cprofile", "python-performance-audit"),
-        ("pandas", "python-code-reading"),
-        ("numpy", "python-code-reading"),
-        ("sqlalchemy", "python-api-optimization"),
-        ("celery", "python-concurrency-safety"),
-        ("virtualenv", "python-daily-business-suite"),
-        ("写代码", None),
-        ("看代码", None),
-        ("读代码", None),
-        ("这段代码", None),
-        ("这个方法", None),
-        ("这个类", None),
-
-        # -- SQL skills --
-        ("sql", "sql-basic-query"),
-        ("mysql", "sql-basic-query"),
-        ("crud", "sql-basic-query"),
-        ("增删改查", "sql-basic-query"),
-        ("select", "sql-basic-query"),
-        ("insert", "sql-basic-query"),
-        ("update", "sql-basic-query"),
-        ("delete", "sql-basic-query"),
-        ("where", "sql-basic-query"),
-        ("order by", "sql-basic-query"),
-        ("group by", "sql-basic-query"),
-        ("having", "sql-basic-query"),
-        ("分页", "sql-basic-query"),
-        ("limit", "sql-basic-query"),
-        ("join", "sql-complex-query"),
-        ("left join", "sql-complex-query"),
-        ("exists", "sql-complex-query"),
-        ("子查询", "sql-complex-query"),
-        ("窗口函数", "sql-complex-query"),
-        ("row_number", "sql-complex-query"),
-        ("rank", "sql-complex-query"),
-        ("case when", "sql-complex-query"),
-        ("行列转换", "sql-complex-query"),
-        ("执行计划", "sql-complex-query"),
-        ("explain", "sql-complex-query"),
-        ("笛卡尔积", "sql-complex-query"),
-        ("全表扫描", "sql-complex-query"),
-        ("建表", "sql-scripts-procedures"),
-        ("create table", "sql-scripts-procedures"),
-        ("索引", "sql-scripts-procedures"),
-        ("index", "sql-scripts-procedures"),
-        ("存储过程", "sql-scripts-procedures"),
-        ("stored procedure", "sql-scripts-procedures"),
-        ("函数", "sql-scripts-procedures"),
-        ("function", "sql-scripts-procedures"),
-        ("触发器", "sql-scripts-procedures"),
-        ("trigger", "sql-scripts-procedures"),
-        ("迁移", "sql-scripts-procedures"),
-        ("migration", "sql-scripts-procedures"),
-        ("ddl", "sql-scripts-procedures"),
-        ("事务", "sql-scripts-procedures"),
-        ("transaction", "sql-scripts-procedures"),
-        ("sql注入", "java-sql-audit"),
-
-        # -- Diagrams & Architecture --
-        ("流程图", "diagrams"),
-        ("架构图", "diagrams"),
-        ("部署图", "diagrams"),
-        ("时序图", "diagrams"),
-        ("er图", "diagrams"),
-        ("类图", "diagrams"),
-        ("状态图", "diagrams"),
-        ("mermaid", "diagrams"),
-        ("diagram", "diagrams"),
-        ("画图", "diagrams"),
-        ("甘特图", "diagrams"),
-        ("c4模型", "diagrams"),
-        ("draw", "diagrams"),
-    ]
 
     def _auto_inject_skill(self, user_input: str):
-        """Detect code-related queries and auto-inject the relevant skill L2."""
-        lower = user_input.lower()
-        target_skill = None
-        for keyword, skill_name in self._CODE_KEYWORDS:
-            if keyword in lower:
-                target_skill = skill_name
-                break
-        if target_skill is None and self.skills:
-            # Fuzzy: try common dev skill names
-            for sn in ["java-development", "python-development"]:
-                for s in self.skills:
-                    if s.name.lower() == sn:
-                        target_skill = s.name
-                        break
-                if target_skill:
-                    break
-        if not target_skill:
+        """Phase 1: keyword pre-filter → Phase 2: LLM decides if multiple candidates.
+        
+        Keywords come from config.yaml skill_keywords and per-skill triggers.
+        When only 1 candidate matches, inject directly (no LLM call).
+        When 2+ candidates match, use LLM to pick the best one.
+        """
+        si_cfg = self.config.get("agent", {}).get("skill_injection", {})
+        if not si_cfg.get("enabled", True):
             return
+
+        lower = user_input.lower()
+
+        # Phase 1: keyword pre-filter from config + per-skill triggers
+        keyword_map = self.config.get("skill_keywords", {})
+        candidates = []
+        for skill_name, keywords in keyword_map.items():
+            if not isinstance(keywords, list):
+                continue
+            for kw in keywords:
+                if kw in lower:
+                    candidates.append(skill_name)
+                    break  # one keyword match is enough per skill
+
+        # Also check triggers from skill frontmatter (per-skill customization)
+        for s in self.skills:
+            if s.name.lower() in [c.lower() for c in candidates]:
+                continue
+            # triggers from frontmatter: comma-separated string
+            triggers_raw = s.frontmatter.get("triggers", "") if hasattr(s, "frontmatter") else ""
+            if triggers_raw:
+                triggers = [t.strip() for t in triggers_raw.split(",") if t.strip()]
+                for t in triggers:
+                    if t.lower() in lower:
+                        candidates.append(s.name)
+                        break
+
+        if not candidates:
+            return
+
+        # Deduplicate while preserving priority order
+        seen = set()
+        unique_candidates = []
+        for c in candidates:
+            if c.lower() not in seen:
+                seen.add(c.lower())
+                unique_candidates.append(c)
+        candidates = unique_candidates
+
+        # Phase 2: select
+        selected = None
+        if len(candidates) == 1:
+            selected = candidates[0]
+        elif si_cfg.get("llm_selection", True):
+            selected = self._llm_pick_skill(user_input, candidates, si_cfg)
+
+        if not selected:
+            return
+
+        # Find the skill object
         found = None
         for s in self.skills:
-            if s.name.lower() == target_skill.lower():
+            if s.name.lower() == selected.lower():
                 found = s
                 break
         if not found:
+            if self.logger:
+                self.logger.error_recovery(
+                    "skill_inject", f"skill not found: {selected}", "skip"
+                )
             return
+
         # Don't re-inject if already in recent messages
         recent = [m.get("content", "") for m in self.state.messages[-5:]]
         if any(f"[Skill Context: {found.name}]" in c for c in recent):
             return
+
+        # Inject L2 body
         from ..prompt_layer.skill_loader import get_skill_body
+
         body = get_skill_body(found)
         found.use_count += 1
         injected = f"[Skill Context: {found.name}]\n\n{body}"
         self.state.add_assistant_message(injected)
         if self.logger:
             self.logger.skill_injected(found.name, len(body))
+
+    def _llm_pick_skill(self, user_input: str, candidates: list, si_cfg: dict) -> str | None:
+        """Ask LLM to pick the best matching skill from candidates."""
+        candidate_descs = []
+        for cn in candidates:
+            for s in self.skills:
+                if s.name.lower() == cn.lower():
+                    desc = getattr(s, "short_desc", "") or getattr(s, "description", "") or cn
+                    line = f"- {s.name}: {desc}"
+                    # Include applicable/not_applicable hints if present
+                    if hasattr(s, "frontmatter") and s.frontmatter:
+                        app = s.frontmatter.get("applicable", "")
+                        not_app = s.frontmatter.get("not_applicable", "")
+                        if app:
+                            line += f"\n  Use for: {app}"
+                        if not_app:
+                            line += f"\n  NOT for: {not_app}"
+                    candidate_descs.append(line)
+                    break
+
+        prompt = (
+            f"User request: \"{user_input}\"\n\n"
+            "Available skills:\n"
+            + "\n".join(candidate_descs)
+            + "\n\nWhich ONE skill BEST matches the user's request? "
+            "Reply with ONLY the skill name (or \"none\" if none fit).\n"
+            "Skill name:"
+        )
+
+        timeout = si_cfg.get("llm_selection_timeout", 15)
+        messages = [{"role": "user", "content": prompt}]
+
+        try:
+            result = _llm_call_with_timeout(self.llm_chat_fn, messages, timeout)
+        except Exception:
+            if self.logger:
+                self.logger.error_recovery("skill_pick", "LLM call failed", "fallback_first")
+            return candidates[0]  # fallback to first candidate
+
+        if not result or result.startswith("[Timeout]") or result.startswith("[Error]"):
+            if self.logger:
+                self.logger.error_recovery("skill_pick", result[:80] if result else "empty", "fallback_first")
+            return candidates[0]  # fallback to first candidate
+
+        result = result.strip().strip('"').strip("'").strip()
+
+        # Try exact match first, then prefix match
+        for cn in candidates:
+            if cn.lower() == result.lower():
+                return cn
+        for cn in candidates:
+            if result.lower().startswith(cn.lower()[:8]):
+                return cn
+        if result.lower() == "none" or result == "":
+            return None
+
+        # Last resort: fallback to first candidate
+        return candidates[0]
 
     def _handle_turn(self, user_input: str):
         """Process one conversation turn."""

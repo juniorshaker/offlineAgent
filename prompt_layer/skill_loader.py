@@ -34,13 +34,16 @@ PLATFORM_MAP = {
 class Skill:
     """Represents one loaded skill."""
 
-    def __init__(self, name: str, description: str, body: str, path: Path, source: str):
+    def __init__(self, name: str, description: str, body: str, path: Path, source: str, frontmatter: dict[str, str] | None = None):
         self.name = name
         self.description = description
         self.body = body
         self.path = path
         self.source = source  # 'local', 'codex', 'openclaw'
         self.use_count = 0
+
+        # Store extra frontmatter fields for flexible use (e.g. triggers, applicable, not_applicable)
+        self.frontmatter: dict[str, str] = frontmatter or {}
 
     @property
     def short_desc(self) -> str:
@@ -190,6 +193,7 @@ def load_all_skills(config: dict, base_dir: Path) -> list[Skill]:
                 body=body.strip(),
                 path=skill_file,
                 source=source,
+                frontmatter=frontmatter,
             )
             skills.append(skill)
             seen_names.add(name)

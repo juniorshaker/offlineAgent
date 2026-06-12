@@ -1,6 +1,9 @@
 ---
 name: sql-scripts-procedures
-description: Use when the user asks to write DDL scripts, index statements, data initialization scripts, migration scripts, stored procedures, or custom functions. Triggers on requests like "建表语句", "写个存储过程", "数据迁移脚本", "创建索引", or any database schema/script task.
+description: Use when the user asks to write DDL scripts, index statements, data initialization scripts, migration scripts, stored procedures, or custom functions.
+triggers: "建表, create table, 索引, index, 存储过程, stored procedure, function, 触发器, trigger, 迁移, migration, ddl"
+applicable: "DDL operations, database schema design, stored procedures, migration scripts, index creation"
+not_applicable: "Simple CRUD queries, SELECT/INSERT/UPDATE/DELETE statements, query optimization, SQL writing without schema changes, transaction in Spring context"
 ---
 
 # 数据库脚本与存储过程编写
