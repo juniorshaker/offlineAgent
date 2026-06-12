@@ -458,6 +458,16 @@ body::before {
   padding: 4px 12px;
 }
 
+/* LLM connection error */
+.message.agent.llm-error {
+  background: rgba(255, 80, 80, 0.08);
+  border: 1px solid rgba(255, 80, 80, 0.2);
+  border-radius: 8px;
+  color: #f87171;
+  font-size: 13px;
+  padding: 12px 16px;
+}
+
 /* Welcome */
 .message.welcome {
   display: flex !important;

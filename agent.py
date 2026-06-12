@@ -363,6 +363,17 @@ def create_llm_chat_fn(config: dict, logger=None, token_tracker=None):
         if api_key:
             headers["Authorization"] = f"Bearer {api_key}"
 
+        # --- Pre-flight connectivity check (5s timeout) ---
+        # Detects dead connections fast instead of waiting full timeout
+        try:
+            ping_data = {"model": model, "messages": [{"role": "user", "content": "ping"}],
+                         "max_tokens": 1, "stream": False}
+            requests.post(url, headers=headers, json=ping_data, timeout=5)
+        except requests.ConnectionError as e:
+            return f"[LLM Error] Connection lost - cannot reach LLM API: {e}"
+        except Exception:
+            pass  # Pre-flight non-critical: proceed with main request
+
         data = {"model": model, "messages": messages}
 
         try:

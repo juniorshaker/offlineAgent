@@ -832,6 +832,10 @@
         finishStreaming();
         if (currentAgentMsg) { currentAgentMsg.textContent = data.text || ''; }
         else { currentAgentMsg = addMessage('agent', data.text || ''); }
+        // Detect LLM Error responses and style them as connection errors
+        if (data.text && data.text.indexOf('[LLM Error]') === 0) {
+          currentAgentMsg.classList.add('llm-error');
+        }
         scrollToBottom();
         break;
       case 'done':
