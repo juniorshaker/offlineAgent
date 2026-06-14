@@ -45,6 +45,9 @@ class AgentLogger:
     def skill_injected(self, skill_name: str, body_length: int):
         self._log("skill_injected", skill=skill_name, body_len=body_length)
 
+
+    def log(self, category: str, event: str, detail: str = ""):
+        self._log("custom", category=category, event=event, detail=detail)
     def status(self) -> dict:
         """Return a status snapshot."""
         elapsed = time.time() - self.start_time

@@ -51,6 +51,7 @@ from Offlineagent.tool_layer import db_tools
 
 # Memory layer
 from Offlineagent.memory_layer.memory_store import MemoryStore
+from Offlineagent.memory_layer.autoskill import check_generated_skills
 
 # Metrics
 from Offlineagent.metrics.logger import AgentLogger
@@ -737,6 +738,16 @@ def main():
             for f in items:
                 print(f"    - {f.stem.replace("_", " ")}")
             print("  Type /pending during chat to review.\n")
+
+    # Check auto-generated skills
+    autoskill_dir = base_dir / "skills" / "_autogen"
+    if autoskill_dir.exists():
+        gen_skills = check_generated_skills(base_dir, logger)
+        if gen_skills:
+            print(f"\n  [Autoskill] {len(gen_skills)} auto-generated skill(s) found:")
+            for gs in gen_skills:
+                print(f"    - {gs["name"]}: {gs["snippet"][:80]}...")
+            print("  Review and enable in skills/_autogen/ or respond to the prompt.\n")
     # Start chat loop
 
     # Initialize browser (non-blocking if Playwright not available)

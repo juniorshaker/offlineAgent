@@ -11,6 +11,7 @@ from .state_manager import StateManager
 from .context_compressor import compress_history
 from .error_recovery import check_before_send, repair_after_error
 from .topic_guard import detect_topic_shift, ask_user_new_conversation
+from ..memory_layer.autoskill import on_error as _autoskill_on_error
 
 
 def _estimate_tokens(text: str) -> int:
@@ -490,6 +491,27 @@ class ChatLoop:
             self.tools,
             self.logger,
         )
+
+        # --- Autoskill: record error for self-learning ---
+        if response.startswith("[LLM Error]") or response.startswith("[Timeout]"):
+            try:
+                model = self.get_active_model_fn() if self.get_active_model_fn else "unknown"
+                snippet = " ".join(
+                    m.get("content","")[:100]
+                    for m in self.state.messages[-3:]
+                    if isinstance(m.get("content"), str)
+                )
+                _autoskill_on_error(
+                    model=model,
+                    error_msg=response,
+                    messages_snippet=snippet[:300],
+                    base_dir=self.base_dir,
+                    llm_chat_fn=self.llm_chat_fn,
+                    memory_store=self.memory_store,
+                    logger=self.logger,
+                )
+            except Exception:
+                pass
 
         # ── Add assistant response to state ──
         self.state.add_assistant_message(response)
