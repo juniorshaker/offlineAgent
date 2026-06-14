@@ -140,6 +140,7 @@ class ChatLoop:
     /status        Token budget dashboard
     /memory        Show memory list
     /memory <id>   Show a specific memory
+    /pending       List unresolved pending issues
     /clear         Clear conversation history
     /config        Show current config summary
     /exit          Exit (auto-summarize + feedback)
@@ -203,6 +204,27 @@ class ChatLoop:
                 else:
                     print(f"  Memory not found: {arg}")
 
+
+        elif command == "/pending":
+            pending_dir = self.base_dir / "pending"
+            if not pending_dir.exists():
+                print("  Pending directory does not exist.")
+            else:
+                items = sorted(pending_dir.glob("*.md"))
+                if not items:
+                    print("  No pending issues.")
+                else:
+                    print(f"  Pending issues ({len(items)}):")
+                    for f in items:
+                        name = f.stem.replace("_", " ")
+                        print(f"    - {name}")
+                        try:
+                            first_line = f.read_text(encoding="utf-8").strip().split("\n")[0]
+                            if first_line.startswith("#"):
+                                first_line = first_line.lstrip("#").strip()
+                            print(f"      {first_line[:100]}")
+                        except Exception:
+                            pass
         elif command == "/clear":
             self.state.clear_history()
             print("  Conversation history cleared.")
@@ -488,6 +510,16 @@ class ChatLoop:
         except Exception:
             pass
 
+
+        # Pending issues check
+        pending_dir = self.base_dir / "pending"
+        if pending_dir.exists():
+            items = sorted(pending_dir.glob("*.md"))
+            if items:
+                print(f"\n  [Pending] You have {len(items)} unresolved issue(s):")
+                for f in items:
+                    print(f"    - {f.stem}")
+                print("  Run /pending next time to review.\n")
         # Auto-summarize
         if memory_cfg.get("auto_summarize_on_exit", True) and self.memory_store:
             non_system_msgs = [m for m in self.state.messages if m["role"] != "system"]

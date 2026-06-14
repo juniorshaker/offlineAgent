@@ -727,6 +727,16 @@ def main():
     registry = ToolRegistry()
     register_tools(registry, config, base_dir)
 
+
+    # Scan pending issues
+    pending_dir = base_dir / "pending"
+    if pending_dir.exists():
+        items = sorted(pending_dir.glob("*.md"))
+        if items:
+            print(f"\n  [Pending] You have {len(items)} unresolved issue(s):")
+            for f in items:
+                print(f"    - {f.stem.replace("_", " ")}")
+            print("  Type /pending during chat to review.\n")
     # Start chat loop
 
     # Initialize browser (non-blocking if Playwright not available)
