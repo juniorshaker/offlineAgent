@@ -28,6 +28,14 @@ class Response:
         """Return response body as text."""
         return self._data.decode("utf-8")
 
+    def raise_for_status(self):
+        """Raise ConnectionError for 4xx/5xx responses."""
+        if self.status_code >= 400:
+            raise ConnectionError(
+                f"HTTP {self.status_code} {self.reason}: "
+                f"{self._data[:200].decode('utf-8', errors='replace')}"
+            )
+
 
 class ConnectionError(Exception):
     """Raised on network-level failures (DNS, refused, timeout)."""
