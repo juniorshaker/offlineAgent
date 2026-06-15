@@ -692,7 +692,18 @@ def run_tool_loop(messages: list[dict], system_prompt: str, state: StateManager,
                         "tool": tc.name,
                     })
 
+                # SSE keepalive heartbeat while tool executes (prevents browser/proxy timeout)
+                _hb_stop = threading.Event()
+                def _hb():
+                    while not _hb_stop.is_set():
+                        _hb_stop.wait(3)  # ping every 3s
+                        if not _hb_stop.is_set() and status_callback:
+                            status_callback("keepalive", {})
+                _hb_thread = threading.Thread(target=_hb, daemon=True)
+                _hb_thread.start()
+
                 result = registry.dispatch(tc.name, tc.params)
+                _hb_stop.set()  # stop keepalive
                 result_str = str(result)[:4000]
 
                 state.messages.append({
@@ -944,6 +955,11 @@ class OfflineAgentHandler(http.server.BaseHTTPRequestHandler):
 
         def send_sse(event: str, data: dict):
             try:
+                # keepalive events are SSE comments to prevent browser/proxy timeout
+                if event == "keepalive":
+                    self.wfile.write(b":keepalive\n\n")
+                    self.wfile.flush()
+                    return True
                 msg = f"event: {event}\ndata: {_json.dumps(data, ensure_ascii=False)}\n\n"
                 self.wfile.write(msg.encode("utf-8"))
                 self.wfile.flush()
