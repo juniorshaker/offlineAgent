@@ -1470,7 +1470,10 @@ def start_server(config: dict, base_dir: Path):
     signal.signal(signal.SIGTERM, shutdown_handler)
 
     try:
-        server.serve_forever()
+        # Polling loop handles Ctrl+C reliably on Windows (serve_forever doesn't)
+        server.timeout = 0.5
+        while True:
+            server.handle_request()
     except KeyboardInterrupt:
         _log("Server stopped by user.")
     finally:

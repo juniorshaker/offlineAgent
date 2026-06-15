@@ -21,20 +21,29 @@ def run_self_check(config: dict, base_dir: Path) -> list[str]:
     """Run all startup checks. Returns list of [PASS]/[WARN]/[FAIL] lines."""
     results = []
 
-    # --- LLM config ---
+    # --- LLM config (supports both multi-backend and legacy flat format) ---
     llm = config.get("llm", {})
-    url = llm.get("url", "")
-    model = llm.get("model", "")
+    
+    if "primary" in llm:
+        # Multi-backend format
+        active = llm.get("active", "primary")
+        backend = llm.get(active, llm.get("primary", {}))
+        url = backend.get("url", "")
+        model = backend.get("model", "")
+    else:
+        # Legacy flat format
+        url = llm.get("url", "")
+        model = llm.get("model", "")
 
     if not url or url == "http://your-internal-api/v1/chat/completions":
-        results.append("[WARN] LLM URL not configured. Edit config.yaml → llm.url")
+        results.append("[WARN] LLM URL not configured. Edit config.yaml → llm.primary.url")
     else:
-        results.append(f"[PASS] LLM endpoint: {url}")
+        results.append(f"[PASS] LLM endpoint: {url} ({active if 'primary' in llm else 'default'})")
 
     if model:
         results.append(f"[PASS] Model: {model}")
     else:
-        results.append("[FAIL] Model not set in config.yaml → llm.model")
+        results.append("[FAIL] Model not set in config.yaml → llm.primary.model")
 
     # --- Skills paths ---
     skill_paths = config.get("skills", {}).get("paths", [])
