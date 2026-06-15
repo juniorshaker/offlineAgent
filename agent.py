@@ -51,6 +51,7 @@ from Offlineagent.tool_layer import db_tools
 
 # Memory layer
 from Offlineagent.memory_layer.memory_store import MemoryStore
+from Offlineagent.metrics.token_tracker import TokenTracker
 from Offlineagent.memory_layer.autoskill import check_generated_skills
 
 # Metrics
@@ -469,9 +470,20 @@ def create_llm_chat_fn(config: dict, logger=None, token_tracker=None):
             result_text = parse_llm_response_body(body, logger)
 
             # Capture token usage from API response
-            if token_tracker and "usage" in body:
+            if token_tracker:
                 try:
-                    usage = body["usage"]
+                    usage = body.get("usage")
+                    if not usage:
+                        # API does not return usage (self-hosted models) - estimate
+                        import json as _json
+                        prompt_text = _json.dumps(messages, ensure_ascii=False)
+                        completion_text = result_text or ""
+                        usage = {
+                            "prompt_tokens": max(1, len(prompt_text) // 2),
+                            "completion_tokens": max(1, len(completion_text) // 2),
+                            "total_tokens": max(2, (len(prompt_text) + len(completion_text)) // 2),
+                            "_estimated": True,
+                        }
                     token_tracker.record(
                         backend=_active,
                         model=model,
@@ -704,7 +716,9 @@ def main():
         print("  (Using cached prompt)")
 
     # Create LLM client
-    llm_chat_fn, switch_backend_fn, get_active_model_fn, list_backends_fn = create_llm_chat_fn(config, logger)
+    token_tracker = TokenTracker(base_dir / "memory")
+
+    llm_chat_fn, switch_backend_fn, get_active_model_fn, list_backends_fn = create_llm_chat_fn(config, logger, token_tracker=token_tracker)
 
     # Initialize state
     agent_cfg = config.get("agent", {})

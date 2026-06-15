@@ -225,6 +225,18 @@ def create_llm_chat_fn(config: dict, base_dir: Path):
 
         # Track usage
         usage = result.get("usage")
+        if not usage:
+            # API doesn't return usage (common with self-hosted models) — estimate
+            import json as _json2
+            prompt_text = _json2.dumps(messages, ensure_ascii=False)
+            raw_choices = result.get("choices", [])
+            completion_text = raw_choices[0].get("message", {}).get("content", "") if raw_choices else ""
+            usage = {
+                "prompt_tokens": max(1, len(prompt_text) // 2),
+                "completion_tokens": max(1, len(completion_text) // 2),
+                "total_tokens": max(2, (len(prompt_text) + len(completion_text)) // 2),
+                "_estimated": True,
+            }
         if usage:
             tracker = _server_state.get("token_tracker")
             if tracker:
@@ -629,7 +641,15 @@ def run_tool_loop(messages: list[dict], system_prompt: str, state: StateManager,
                     "has_tool_calls=True but parse empty, treating as text",
                     req_id=req_id,
                 )
-                final_parts.append(response)
+                # Strip raw XML tool tags so user never sees them
+                import re
+                cleaned = re.sub(r'<tool_call>.*?</tool_call>', '[工具调用解析失败，已移除]', response, flags=re.DOTALL)
+                for tag in ['function_call', 'tool', 'invoke']:
+                    cleaned = re.sub(rf'<{tag}>.*?</{tag}>', '[工具调用解析失败，已移除]', cleaned, flags=re.DOTALL)
+                if cleaned.strip():
+                    final_parts.append(cleaned)
+                else:
+                    final_parts.append("[工具调用解析失败，请尝试重新提问]")
                 break
 
             tc_names = [tc.name for tc in tool_calls]

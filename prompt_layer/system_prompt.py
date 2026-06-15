@@ -9,6 +9,7 @@ Volatile: memory snapshot + feedback reference + timestamp
 The stable layer is cached to disk to avoid re-scanning on every startup.
 """
 
+import hashlib
 import json
 from datetime import datetime
 from pathlib import Path
@@ -157,7 +158,15 @@ def _build_tools_section(config: dict) -> str:
     return "\n".join(lines)
 
 
-def _load_prompt_cache(base_dir: Path, skills: list[Skill]) -> str | None:
+def _config_checksum(config: dict) -> str:
+    """Return a short hash of the config keys that affect the stable prompt."""
+    tools_enabled = config.get("tools", {}).get("enabled", [])
+    shell_allowed = config.get("tools", {}).get("shell", {}).get("allowed", [])
+    payload = json.dumps({"tools": sorted(tools_enabled), "shell": sorted(shell_allowed)}, sort_keys=True)
+    return hashlib.md5(payload.encode()).hexdigest()[:8]
+
+
+def _load_prompt_cache(base_dir: Path, skills: list[Skill], config: dict) -> str | None:
     """Try to load cached stable prompt. Returns None if cache is stale."""
     cache_path = base_dir / CACHE_FILE
     if not cache_path.exists():
@@ -178,10 +187,15 @@ def _load_prompt_cache(base_dir: Path, skills: list[Skill]) -> str | None:
         if cached_mtime != actual_mtime:
             return None
 
+    # Check if tool config changed (tool_defs added/removed)
+    cached_checksum = cache.get("config_checksum")
+    if cached_checksum and cached_checksum != _config_checksum(config):
+        return None
+
     return cache.get("prompt")
 
 
-def _save_prompt_cache(base_dir: Path, skills: list[Skill], prompt: str):
+def _save_prompt_cache(base_dir: Path, skills: list[Skill], prompt: str, config: dict):
     """Save the stable prompt to disk cache."""
     cache_path = base_dir / CACHE_FILE
     mtimes = {}
@@ -194,6 +208,7 @@ def _save_prompt_cache(base_dir: Path, skills: list[Skill], prompt: str):
     cache = {
         "prompt": prompt,
         "skill_mtimes": mtimes,
+        "config_checksum": _config_checksum(config),
     }
     cache_path.write_text(json.dumps(cache, ensure_ascii=False, indent=2), encoding="utf-8")
 
@@ -215,12 +230,12 @@ def build_system_prompt(
 
     # Try cache
     if not force_rebuild:
-        cached = _load_prompt_cache(base_dir, skills)
+        cached = _load_prompt_cache(base_dir, skills, config)
         if cached and len(cached) > 100:  # Sanity check
             # Still need to add context + volatile layers
             pass
 
-    _save_prompt_cache(base_dir, skills, stable)
+    _save_prompt_cache(base_dir, skills, stable, config)
 
     # --- Context layer ---
     extra = config.get("agent", {}).get("system_prompt_extra", "")
