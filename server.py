@@ -114,53 +114,123 @@ def _log(msg: str, level: str = "INFO", req_id: str = ""):
 def _get_active_model_name() -> str:
     """Get the currently active model name."""
     config = _server_state.get("config", {})
-    return config.get("llm", {}).get("model", "unknown")
+    llm_cfg = config.get("llm", {})
+    if "primary" in llm_cfg:
+        active = llm_cfg.get("active", "primary")
+        return llm_cfg.get(active, {}).get("model", "unknown")
+    return llm_cfg.get("model", "unknown")
 
 def _get_active_timeout() -> int:
     """Get the currently active LLM timeout."""
     config = _server_state.get("config", {})
-    return config.get("llm", {}).get("timeout", 300)
+    llm_cfg = config.get("llm", {})
+    if "primary" in llm_cfg:
+        active = llm_cfg.get("active", "primary")
+        return llm_cfg.get(active, {}).get("timeout", 300)
+    return llm_cfg.get("timeout", 300)
 
 def create_llm_chat_fn(config: dict, base_dir: Path):
-    """Create an LLM chat function from the primary endpoint config."""
+    """Create a unified LLM chat function supporting multi-backend config.
+
+    Supports two config formats:
+    1. Multi-backend: llm.primary / llm.secondary with llm.active
+    2. Legacy flat: llm.url / llm.model (auto-converted)
+
+    Returns: (chat_fn, switch_backend_fn, get_active_model_fn, list_backends_fn)
+    """
     llm_cfg = config.get("llm", {})
-    url = llm_cfg.get("url", "")
-    timeout = llm_cfg.get("timeout", 300)
-    extra_headers = llm_cfg.get("extra_headers", {}) or {}
 
-    if not url:
-        _log("LLM URL not configured, using echo fallback", "WARN")
-        def _echo_fallback(messages, **kwargs):
-            return f"[Echo mode] Received {len(messages)} messages. Last: {messages[-1].get('content', '')[:100]}..."
-        return _echo_fallback
+    # -- Detect config format and build backend dict --
+    if "primary" in llm_cfg:
+        # Multi-backend format
+        backends = {}
+        for name in ("primary", "secondary"):
+            if name in llm_cfg:
+                be = llm_cfg[name]
+                backends[name] = {
+                    "url": be.get("url", ""),
+                    "model": be.get("model", "unknown"),
+                    "timeout": be.get("timeout", 300),
+                    "api_key": be.get("api_key", ""),
+                }
+        active = llm_cfg.get("active", "primary")
+        if active not in backends:
+            _log(f"active backend '{active}' not found, using first available", "WARN")
+            active = next(iter(backends.keys()))
+    else:
+        # Legacy flat format
+        backends = {
+            "default": {
+                "url": llm_cfg.get("url", ""),
+                "model": llm_cfg.get("model", "Qwen3"),
+                "timeout": llm_cfg.get("timeout", 300),
+                "api_key": llm_cfg.get("api_key", ""),
+            }
+        }
+        active = "default"
+        config["llm"] = {
+            "active": "default",
+            "default": backends["default"],
+        }
 
-    def _llm_chat(messages, **kwargs):
+    # -- Validate --
+    if not backends:
+        _log("No LLM backends configured, using echo fallback", "WARN")
+        def _echo(messages, **kwargs):
+            return f"[Echo mode] Received {len(messages)} messages."
+        return _echo, lambda name: "No backends", lambda: "echo", lambda: "No backends"
+
+    # State for backend switching
+    _active_name = [active]  # list for mutable closure capture
+
+    # -- Connection test on startup --
+    be = backends[active]
+    url = be["url"]
+    if url:
+        try:
+            headers = {"Content-Type": "application/json"}
+            if be["api_key"]:
+                headers["Authorization"] = f"Bearer {be['api_key']}"
+            test_data = {"model": be["model"], "messages": [{"role": "user", "content": "hi"}]}
+            test_resp = requests.post(url, headers=headers, json=test_data, timeout=min(be["timeout"], 15))
+            if test_resp.status_code == 200:
+                _log(f"LLM connection OK: {url} (backend={active}, model={be['model']})")
+            else:
+                _log(f"LLM test returned status={test_resp.status_code}", "WARN")
+        except Exception as e:
+            _log(f"LLM connection test failed: {e}", "WARN")
+    else:
+        _log("Active backend has no URL, chat will fail at call time", "WARN")
+
+    # -- The actual chat function --
+    def _chat(messages, **kwargs):
+        b = backends[_active_name[0]]
+        if not b["url"]:
+            return f"[Error] Backend '{_active_name[0]}' has no URL configured."
+
         headers = {"Content-Type": "application/json"}
-        headers.update(extra_headers)
-        data = {
-            "model": llm_cfg.get("model", "default"),
-            "messages": messages,
-        }
-        # Add optional parameters
+        if b["api_key"]:
+            headers["Authorization"] = f"Bearer {b['api_key']}"
+
+        data = {"model": b["model"], "messages": messages}
         if "temperature" in kwargs:
             data["temperature"] = kwargs["temperature"]
         if "max_tokens" in kwargs:
             data["max_tokens"] = kwargs["max_tokens"]
 
-        resp = requests.post(url, headers=headers, json=data, timeout=timeout)
+        resp = requests.post(b["url"], headers=headers, json=data, timeout=b["timeout"])
         resp.raise_for_status()
         result = resp.json()
 
-        # Extract usage info if token_tracker is available
+        # Track usage
         usage = result.get("usage")
         if usage:
             tracker = _server_state.get("token_tracker")
             if tracker:
                 try:
-                    model = llm_cfg.get("model", "unknown")
                     tracker.record(
-                        backend="primary",
-                        model=model,
+                        backend=_active_name[0],
+                        model=b["model"],
                         prompt_tokens=usage.get("prompt_tokens", 0),
                         completion_tokens=usage.get("completion_tokens", 0),
                         total_tokens=usage.get("total_tokens", 0),
@@ -173,68 +243,22 @@ def create_llm_chat_fn(config: dict, base_dir: Path):
             return "[Error] LLM returned empty choices."
         return choices[0].get("message", {}).get("content", "[Error] No content in LLM response.")
 
-    return _llm_chat
+    # -- Helper functions --
+    def _switch_backend(name):
+        if name not in backends:
+            return f"Unknown backend: {name}. Available: {', '.join(backends.keys())}"
+        _active_name[0] = name
+        config["llm"]["active"] = name
+        return f"Switched to {name} ({backends[name]['model']})"
 
+    def _get_model():
+        return backends[_active_name[0]]["model"]
 
-def create_secondary_llm_chat_fn(config: dict, base_dir: Path):
-    """Create an LLM chat function from the secondary (OpenAI-compatible) endpoint."""
-    secondary_cfg = config.get("llm_secondary", {})
-    if not secondary_cfg:
-        return None
+    def _list_backends():
+        return ", ".join(f"{k}({v['model']})" for k, v in backends.items())
 
-    url = secondary_cfg.get("url", "")
-    api_key = secondary_cfg.get("api_key", "")
-    model = secondary_cfg.get("model", "gpt-4")
-    timeout = secondary_cfg.get("timeout", 300)
+    return _chat, _switch_backend, _get_model, _list_backends
 
-    if not url:
-        return None
-
-    def _secondary_chat(messages, **kwargs):
-        headers = {
-            "Content-Type": "application/json",
-            "Authorization": f"Bearer {api_key}",
-        }
-        data = {
-            "model": model,
-            "messages": messages,
-        }
-        if "temperature" in kwargs:
-            data["temperature"] = kwargs["temperature"]
-        if "max_tokens" in kwargs:
-            data["max_tokens"] = kwargs["max_tokens"]
-
-        resp = requests.post(url, headers=headers, json=data, timeout=timeout)
-        resp.raise_for_status()
-        result = resp.json()
-
-        # Extract usage
-        usage = result.get("usage")
-        if usage:
-            tracker = _server_state.get("token_tracker")
-            if tracker:
-                try:
-                    tracker.record(
-                        backend="secondary",
-                        model=model,
-                        prompt_tokens=usage.get("prompt_tokens", 0),
-                        completion_tokens=usage.get("completion_tokens", 0),
-                        total_tokens=usage.get("total_tokens", 0),
-                    )
-                except Exception:
-                    pass
-
-        choices = result.get("choices", [])
-        if not choices:
-            return "[Error] LLM returned empty choices."
-        return choices[0].get("message", {}).get("content", "[Error] No content in LLM response.")
-
-    return _secondary_chat
-
-
-# ============================================================
-# Image handling
-# ============================================================
 
 def _prepare_user_content(user_input: str):
     """Convert user input with embedded base64 images to multimodal content blocks."""
@@ -1266,11 +1290,20 @@ def _handle_web_command(cmd: str, state: StateManager, req_id: str = "") -> str:
     elif command == "/config":
         config = _server_state["config"]
         llm_cfg = config.get("llm", {})
+        active = llm_cfg.get("active", "N/A")
+        if "primary" in llm_cfg:
+            lines = [f"**Active backend**: {active}"]
+            for name in ("primary", "secondary"):
+                if name in llm_cfg:
+                    be = llm_cfg[name]
+                    mark = " *" if name == active else "  "
+                    l = f"{mark} {name}: {be.get("model", "N/A")} @ {be.get("url", "N/A")[:80]}"
+                    lines.append(l)
+            lines.append(f"**Max tokens**: {config.get("agent", {}).get("max_tokens_estimate", "N/A")}")
+            return "\n".join(lines)
         return (
-            f"**Model**: {llm_cfg.get('model', 'N/A')}\n"
-            f"**URL**: {llm_cfg.get('url', 'N/A')[:80]}\n"
-            f"**Timeout**: {llm_cfg.get('timeout', 'N/A')}s\n"
-            f"**Max tokens**: {config.get('agent', {}).get('max_tokens_estimate', 'N/A')}\n"
+            f"**Model**: {llm_cfg.get("model", "N/A")}\n"
+            f"**URL**: {llm_cfg.get("url", "N/A")[:80]}\n"
         )
 
     elif command == "/logs":
@@ -1327,14 +1360,12 @@ def init_agent(config: dict, base_dir: Path):
 
     # LLM client
     _log("Creating LLM client...")
-    llm_fn = create_llm_chat_fn(config, base_dir)
+    llm_fn, switch_backend_fn, get_model_fn, list_backends_fn = create_llm_chat_fn(config, base_dir)
     _server_state["llm_chat_fn"] = llm_fn
     _server_state["llm_primary_chat_fn"] = llm_fn
-
-    secondary_fn = create_secondary_llm_chat_fn(config, base_dir)
-    _server_state["llm_secondary_chat_fn"] = secondary_fn
-    if secondary_fn:
-        _log("Secondary LLM client configured")
+    _server_state["llm_switch_backend"] = switch_backend_fn
+    _server_state["llm_list_backends"] = list_backends_fn
+    _log(f"LLM client created (backends: {list_backends_fn()})")
 
     # Tool registry
     registry = ToolRegistry()
