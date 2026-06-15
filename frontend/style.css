@@ -1087,3 +1087,17 @@ body::before {
   padding: 0 1px;
   border-radius: 2px;
 }
+
+/* SSE disconnected message style */
+.message.agent.disconnected {
+  color: #92400e;
+  font-style: italic;
+}
+/* SSE retry banner */
+#sse-retry-banner {
+  animation: slideDown 0.3s ease-out;
+}
+@keyframes slideDown {
+  from { opacity: 0; transform: translateY(-100%); }
+  to { opacity: 1; transform: translateY(0); }
+}

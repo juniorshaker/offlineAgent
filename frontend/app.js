@@ -203,7 +203,7 @@
   // === History (in sidebar) ===
   function loadHistory() {
     historyList.innerHTML = '<div class="history-empty">Loading...</div>';
-    fetch('/api/chat/list')
+    fetch('/api/conversations')
       .then(function (r) { return r.json(); })
       .then(renderHistoryList)
       .catch(function () {
@@ -220,7 +220,7 @@
     var html = '';
     for (var i = 0; i < convs.length; i++) {
       var c = convs[i];
-      var dateStr = c.created_at ? c.created_at.slice(0, 16).replace('T', ' ') : '';
+      var d = c.updated ? new Date(c.updated * 1000) : null; var dateStr = d ? d.toISOString().slice(0, 16).replace('T', ' ') : '';
       html += '<div class="history-item" data-id="' + escapeAttr(c.id) + '">' +
         '<span class="history-item-title">' + escapeHtml(c.title || '(untitled)') + '</span>' +
         '<span class="history-item-meta">' + dateStr + ' \u00b7 ' + (c.message_count || 0) + ' msgs</span>' +
@@ -819,6 +819,18 @@
         }
         if (sseDoneReceived) { reader.cancel().catch(function () {}); sseReader = null; return; }
         return pump();
+      }).catch(function (err) {
+        // SSE stream broke (large data, browser timeout, network glitch)
+        if (sseDoneReceived) { sseReader = null; return; }
+        console.warn('[SSE] stream interrupted:', err.message || err);
+        sseReader = null;
+        finishStreaming();
+        // Notify user that connection was lost mid-stream
+        if (currentAgentMsg && !currentAgentMsg.textContent.trim()) {
+          currentAgentMsg.textContent = '[Connection interrupted] The agent may still be processing. Please send your message again to retry.';
+          currentAgentMsg.classList.add('disconnected');
+        }
+        showRetryBanner();
       });
     }
     return pump();
@@ -1019,4 +1031,16 @@
   function driveIcon() { return '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="4" width="20" height="14" rx="2"/><path d="M6 12h12"/></svg>'; }
   function folderIcon() { return '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"/></svg>'; }
   function fileIcon(name) { return '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>'; }
+  // Show a retry banner when SSE connection is lost mid-stream
+  function showRetryBanner() {
+    var existing = document.getElementById('sse-retry-banner');
+    if (existing) { existing.style.display = 'flex'; return; }
+    var banner = document.createElement('div');
+    banner.id = 'sse-retry-banner';
+    banner.style.cssText = 'display:flex;align-items:center;justify-content:center;gap:8px;padding:8px 12px;background:#fef3c7;border:1px solid #f59e0b;color:#92400e;font-size:13px;position:sticky;top:0;z-index:10;';
+    banner.innerHTML = '&#9888; Connection interrupted. The agent may still be processing. <button onclick="this.parentElement.style.display=\'none\'" style="padding:4px 10px;background:#f59e0b;color:#fff;border:none;border-radius:4px;cursor:pointer;">Dismiss</button>';
+    var chatEl = document.getElementById('chat');
+    if (chatEl) chatEl.insertBefore(banner, chatEl.firstChild);
+  }
+
 })();

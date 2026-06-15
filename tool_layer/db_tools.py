@@ -26,6 +26,9 @@ _pg8000 = None
 _CONNECTIONS: dict = {}
 _CURRENT_ENGINE: str = ""
 
+# Track whether _try_imports() has been called
+_imports_tried = False
+
 
 def _try_imports(vendor_dir: Path | None = None):
     """Try to import DB drivers from vendor/ directory."""
@@ -65,11 +68,11 @@ def _conn_key(engine: str, host: str, port: int, database: str) -> str:
 def _resolve_engine(engine: str) -> str:
     """Normalize engine name to driver type."""
     e = engine.lower().strip()
-    if e in ("mysql", "mariadb", "tdsql", "gbase", "gbase8a", "gcdw-mysql"):
+    if e in ("mysql", "mariadb", "tdsql", "gbase", "gbase8a", "gcdw", "gcdw-mysql"):
         return "pymysql"
     elif e in ("oracle", "oracledb"):
         return "oracledb"
-    elif e in ("gcdw", "gcdw-pg", "pg", "postgresql", "postgres"):
+    elif e in ("gcdw-pg", "pg", "postgresql", "postgres"):
         return "pg8000"
     else:
         return e
@@ -77,10 +80,12 @@ def _resolve_engine(engine: str) -> str:
 
 def _ensure_imports():
     """Lazy import check. Returns (available_drivers, missing_drivers)."""
-    global _pymysql, _oracledb, _pg8000
+    global _pymysql, _oracledb, _pg8000, _imports_tried
 
-    if _pymysql is None and _oracledb is None and _pg8000 is None:
+    # Re-attempt imports on first call or if any driver is still missing
+    if not _imports_tried or (_pymysql is None or _oracledb is None or _pg8000 is None):
         _try_imports()
+        _imports_tried = True
 
     available = []
     missing = []

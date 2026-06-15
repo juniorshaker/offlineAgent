@@ -704,7 +704,7 @@ def run_tool_loop(messages: list[dict], system_prompt: str, state: StateManager,
 
                 result = registry.dispatch(tc.name, tc.params)
                 _hb_stop.set()  # stop keepalive
-                result_str = str(result)[:4000]
+                result_str = str(result)[:2000]  # limit SSE payload to avoid buffer overflow
                 _log("Tool {} result ({} chars): {}".format(tc.name, len(result_str), result_str[:200]), req_id=req_id)
 
                 state.messages.append({
@@ -965,6 +965,10 @@ class OfflineAgentHandler(http.server.BaseHTTPRequestHandler):
                 self.wfile.write(msg.encode("utf-8"))
                 self.wfile.flush()
                 return True
+            except ConnectionAbortedError:
+                # Windows: browser closed tab, don't cancel the tool loop
+                _log(f"SSE connection aborted (browser closed), finishing gracefully", "INFO", req_id)
+                return False
             except (BrokenPipeError, ConnectionResetError, OSError):
                 _log(f"Client disconnected during SSE", "INFO", req_id)
                 with _cancel_lock:
@@ -992,7 +996,16 @@ class OfflineAgentHandler(http.server.BaseHTTPRequestHandler):
 
             messages = build_messages(system_prompt, state, user_input, config, req_id)
 
-            response = run_tool_loop(messages, system_prompt, state, config, registry, logger, req_id, send_sse)
+            # Wrap send_sse to suppress callbacks after SSE disconnect
+            _sse_alive = [True]
+            def _sse_cb(event, data):
+                if not _sse_alive[0]:
+                    return False
+                ok = send_sse(event, data)
+                if not ok:
+                    _sse_alive[0] = False
+                return ok
+            response = run_tool_loop(messages, system_prompt, state, config, registry, logger, req_id, _sse_cb)
             if response and not response.startswith("[LLM Error]") and not response.startswith("[Timeout]"):
                 state.add_assistant_message(response)
             else:
@@ -1623,6 +1636,18 @@ def start_server(config: dict, base_dir: Path):
     port = config.get("server", {}).get("port", 8999)
 
     server = http.server.HTTPServer((host, port), OfflineAgentHandler)
+
+    # Suppress noisy ConnectionAbortedError tracebacks from socketserver
+    # (Windows browser tab close causes TCP RST, harmless but ugly in logs)
+    _original_handle_error = server.handle_error
+    def _quiet_handle_error(request, client_address):
+        exc_type, exc_value, _ = sys.exc_info()
+        if exc_type and issubclass(exc_type, ConnectionAbortedError):
+            _log(f"Connection aborted from {client_address} (harmless, suppressed)", "DEBUG")
+        else:
+            _original_handle_error(request, client_address)
+    server.handle_error = _quiet_handle_error
+
     _log(f"Server running at http://localhost:{port}")
 
     def shutdown_handler(signum, frame):

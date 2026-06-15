@@ -898,7 +898,7 @@ def test_conversation_api_routes():
     js_path = Path(__file__).resolve().parent.parent / "frontend" / "app.js"
     with open(js_path, "r", encoding="utf-8") as f:
         js = f.read()
-    assert_in("/api/chat/list", js, "JS references /api/chat/list")
+    assert_in("/api/conversations", js, "JS references /api/conversations")
     assert_in("/api/chat/switch/", js, "JS references /api/chat/switch/")
 
     html_path = Path(__file__).resolve().parent.parent / "frontend" / "index.html"
