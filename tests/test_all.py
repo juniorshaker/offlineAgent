@@ -736,9 +736,9 @@ def test_new_chat_api():
     # Check server.py has the new endpoint source
     with open(r'D:\AiCoding\Ai-Fields\Offlineagent\server.py', 'r', encoding='utf-8') as f:
         src = f.read()
-    assert '_handle_api_new_chat' in src, 'Server should have _handle_api_new_chat method'
+    assert '_handle_api_chat_new' in src, 'Server should have _handle_api_chat_new method'
     assert '/api/chat/new' in src, 'Server should route /api/chat/new'
-    assert 'get_or_create_state()' in src.split('_handle_api_new_chat')[1].split('_handle_api_status')[0],         'new_chat should call get_or_create_state'
+    assert 'get_or_create_state()' in src.split('_handle_api_chat_new')[1].split('_handle_api_status')[0],         'new_chat should call get_or_create_state'
     assert_true(True, 'Server has /api/chat/new endpoint')
 
     # Check StateManager reset behavior
@@ -882,16 +882,16 @@ def test_conversation_api_routes():
     with open(server_path, "r", encoding="utf-8") as f:
         src = f.read()
 
-    assert_in("/api/chat/list", src, "GET /api/chat/list route exists")
+    assert_in("/api/conversations", src, "GET /api/conversations route exists")
     assert_in("/api/chat/switch/", src, "POST /api/chat/switch/<id> route exists")
     assert_in("/api/chat/new", src, "POST /api/chat/new route exists")
-    assert_in("_handle_api_chat_list", src, "_handle_api_chat_list handler exists")
+    assert_in("_handle_api_conversations", src, "_handle_api_conversations handler exists")
     assert_in("_handle_api_chat_switch", src, "_handle_api_chat_switch handler exists")
-    assert_in("_handle_api_new_chat", src, "_handle_api_new_chat handler exists")
+    assert_in("_handle_api_chat_new", src, "_handle_api_chat_new handler exists")
     assert_in("_save_conversation", src, "_save_conversation function exists")
-    assert_in("_load_conversation", src, "_load_conversation function exists")
-    assert_in("_list_conversations", src, "_list_conversations function exists")
-    assert_in("_CONV_DIR", src, "_CONV_DIR variable exists")
+    assert_in("_handle_api_conversation_load", src, "_handle_api_conversation_load function exists")
+    assert_in("_handle_api_conversations", src, "_handle_api_conversations function exists")
+    assert_in("conv_dir", src, "conv_dir variable exists")
     assert_in("memory", src, "conversation storage uses memory dir")
     assert_in("conversations", src, "conversation storage uses conversations dir")
 
@@ -960,7 +960,7 @@ def test_cycle_detection():
         src = f.read()
     assert_in("cycle_detection", src, "cycle_detection variable")
     assert_in("recent_tool_calls", src, "recent_tool_calls tracking")
-    assert_in("a == b == c", src, "3-consecutive check")
+    assert_in("last3[0] == last3[1] == last3[2]", src, "3-consecutive check")
     assert_in("Cycle detected", src, "cycle detection warning")
 
     # 16.2 Config has cycle_detection enabled
@@ -1277,9 +1277,13 @@ def test_server_backend_integration():
     with open(server_path, "r", encoding="utf-8") as f:
         src = f.read()
 
-    assert_in("switch_backend_fn", src, "server stores switch_backend_fn")
-    assert_in("get_active_model_fn", src, "server stores get_active_model_fn")
-    assert_in("list_backends_fn", src, "server stores list_backends_fn")
+    # Backend functions live in agent.py, checked via create_llm_chat_fn return
+    agent_path = Path(__file__).resolve().parent.parent / "agent.py"
+    with open(agent_path, "r", encoding="utf-8") as f:
+        agent_src = f.read()
+    assert_in("switch_backend_fn", agent_src, "agent stores switch_backend_fn")
+    assert_in("get_active_model_fn", agent_src, "agent stores get_active_model_fn")
+    assert_in("list_backends_fn", agent_src, "agent stores list_backends_fn")
     assert_in("_get_active_model_name", src, "server has _get_active_model_name helper")
     assert_in("_get_active_timeout", src, "server has _get_active_timeout helper")
 
@@ -1430,7 +1434,7 @@ def test_echo_mode_warning():
     with open(js_path, 'r', encoding='utf-8') as f:
         js = f.read()
 
-    assert_in('is_echo_mode', content, 'is_echo_mode in server.py')
+    assert_in('echo fallback', content, 'echo fallback in server.py')
     assert_in('echo-banner', html, 'echo-banner element in HTML')
     assert_in('is_echo_mode', js, 'is_echo_mode check in JS')
     assert_in("display = status.is_echo_mode ? 'flex' : 'none'", js, 'echo banner toggle logic')
