@@ -821,6 +821,8 @@ class OfflineAgentHandler(http.server.BaseHTTPRequestHandler):
             self._handle_api_skills()
         elif path == "/api/chat/search":
             self._handle_api_chat_search(parsed)
+        elif path == "/api/files":
+            self._handle_api_files(parsed)
         else:
             self._serve_static(path)
 
@@ -1231,6 +1233,86 @@ class OfflineAgentHandler(http.server.BaseHTTPRequestHandler):
 # ============================================================
 # Built-in commands (web version)
 # ============================================================
+
+    def _handle_api_files(self, parsed):
+        """Handle file browsing /api/files?path=... and /api/files?read=..."""
+        from urllib.parse import parse_qs
+        params = parse_qs(parsed.query)
+
+        from tool_layer.file_tools import _resolve_safe
+
+        read_path = params.get("read", [None])[0]
+        list_path = params.get("path", [None])[0]
+
+        resp = {"ok": True}
+
+        if read_path:
+            p = _resolve_safe(read_path)
+            if not p.exists():
+                resp = {"ok": False, "error": f"File not found: {read_path}"}
+            elif p.is_dir():
+                resp = {"ok": False, "error": f"Path is a directory: {read_path}"}
+            else:
+                try:
+                    content_raw = p.read_bytes()
+                    # Try text, fallback to size info
+                    try:
+                        text = content_raw.decode("utf-8")
+                    except UnicodeDecodeError:
+                        text = f"[Binary file, {len(content_raw):,} bytes]"
+                    resp = {
+                        "ok": True,
+                        "path": str(p),
+                        "type": "file",
+                        "content": text,
+                        "size": len(content_raw),
+                    }
+                except PermissionError:
+                    resp = {"ok": False, "error": f"Permission denied: {read_path}"}
+                except Exception as e:
+                    resp = {"ok": False, "error": str(e)}
+        elif list_path:
+            p = _resolve_safe(list_path)
+            if not p.exists():
+                resp = {"ok": False, "error": f"Directory not found: {list_path}"}
+            elif not p.is_dir():
+                resp = {"ok": False, "error": f"Not a directory: {list_path}"}
+            else:
+                try:
+                    entries = []
+                    for entry in sorted(p.iterdir()):
+                        try:
+                            st = entry.stat()
+                            entries.append({
+                                "name": entry.name,
+                                "type": "dir" if entry.is_dir() else "file",
+                                "size": st.st_size if not entry.is_dir() else 0,
+                            })
+                        except OSError:
+                            entries.append({
+                                "name": entry.name,
+                                "type": "unknown",
+                                "size": 0,
+                            })
+                    parent = str(p.parent) if p.parent != p else None
+                    resp = {
+                        "ok": True,
+                        "path": str(p),
+                        "parent": parent,
+                        "entries": entries,
+                    }
+                except PermissionError:
+                    resp = {"ok": False, "error": f"Permission denied: {list_path}"}
+                except Exception as e:
+                    resp = {"ok": False, "error": str(e)}
+        else:
+            resp = {"ok": False, "error": "Missing ?path= or ?read= parameter"}
+
+        self.send_response(200)
+        self._send_cors()
+        self.send_header("Content-Type", "application/json")
+        self.end_headers()
+        self.wfile.write(_json.dumps(resp, ensure_ascii=False).encode("utf-8"))
 
 def _handle_web_command(cmd: str, state: StateManager, req_id: str = "") -> str:
     """Handle built-in commands for the web interface."""
