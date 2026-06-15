@@ -705,6 +705,7 @@ def run_tool_loop(messages: list[dict], system_prompt: str, state: StateManager,
                 result = registry.dispatch(tc.name, tc.params)
                 _hb_stop.set()  # stop keepalive
                 result_str = str(result)[:4000]
+                _log("Tool {} result ({} chars): {}".format(tc.name, len(result_str), result_str[:200]), req_id=req_id)
 
                 state.messages.append({
                     "role": "assistant",
