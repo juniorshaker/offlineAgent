@@ -1673,6 +1673,43 @@ def test_skill_injection_suite():
     _run_external_test("test_skill_injection.py", "Skill Injection Suite")
 
 
+def test_mermaid_rendering():
+    """Test Mermaid diagram rendering functions in frontend app.js"""
+    import re
+    # Read app.js to verify mermaid integration
+    app_js = Path(__file__).parent.parent / "frontend" / "app.js"
+    content = app_js.read_text(encoding='utf-8')
+
+    # Verify mermaid initialization exists
+    assert 'mermaid.initialize' in content, "Mermaid initialization not found in app.js"
+    assert 'mermaidReady' in content, "mermaidReady flag not found in app.js"
+
+    # Verify renderMermaidText function exists
+    assert 'renderMermaidText' in content, "renderMermaidText function not found in app.js"
+    assert '```mermaid' in content, "Mermaid code block detection not found"
+
+    # Verify mermaid rendering is integrated into addMessage
+    assert 'renderMermaidText(cleaned)' in content, "addMessage not using renderMermaidText"
+
+    # Verify SSE message handler uses renderMermaidText
+    assert 'renderMermaidText(displayText)' in content, "handleSSEEvent not using renderMermaidText"
+
+    # Verify mermaid CSS in style.css
+    css = Path(__file__).parent.parent / "frontend" / "style.css"
+    css_content = css.read_text(encoding='utf-8')
+    assert '.mermaid' in css_content, "Mermaid CSS styles not found"
+
+    # Verify index.html includes mermaid script
+    html = Path(__file__).parent.parent / "frontend" / "index.html"
+    html_content = html.read_text(encoding='utf-8')
+    assert 'mermaid.min.js' in html_content, "Mermaid script tag not found in index.html"
+
+    # Verify mermaid.min.js file exists in vendor
+    vendor_mermaid = Path(__file__).parent.parent / "frontend" / "vendor" / "mermaid.min.js"
+    assert vendor_mermaid.exists(), "mermaid.min.js not found in frontend/vendor/"
+    assert vendor_mermaid.stat().st_size > 100000, "mermaid.min.js appears too small (<100KB)"
+
+
 def run_all():
     print("\n" + "=" * 60)
     print("  OfflineAgent — Complete Test Suite")
@@ -1716,6 +1753,7 @@ def run_all():
         test_autoskill_suite,
         test_server_fixes_suite,
         test_skill_injection_suite,
+        test_mermaid_rendering,
     ]
 
     for test_fn in tests:

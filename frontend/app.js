@@ -5,6 +5,14 @@
 (function () {
   'use strict';
 
+  // === Mermaid diagram rendering ===
+  var mermaidReady = false;
+  if (typeof mermaid !== 'undefined') {
+    mermaid.initialize({ startOnLoad: false, theme: 'default', securityLevel: 'sandbox' });
+    mermaidReady = true;
+  }
+
+
   // === DOM Refs ===
   var messagesEl    = document.getElementById('messages');
   var inputEl       = document.getElementById('user-input');
@@ -849,8 +857,12 @@
         sseDoneReceived = true;
         finishStreaming();
         var displayText = sanitizeAgentText(data.text || '');
-        if (currentAgentMsg) { currentAgentMsg.textContent = displayText; }
-        else { currentAgentMsg = addMessage('agent', displayText); }
+        if (currentAgentMsg) {
+          currentAgentMsg.innerHTML = renderMermaidText(displayText);
+          if (mermaidReady) { try { setTimeout(function() { mermaid.run({ nodes: [currentAgentMsg] }).catch(function(){}); }, 50); } catch(e) {} }
+        } else {
+          currentAgentMsg = addMessage('agent', displayText);
+        }
         // Detect LLM Error responses and style them as connection errors
         if (data.text && data.text.indexOf('[LLM Error]') === 0) {
           currentAgentMsg.classList.add('llm-error');
@@ -923,10 +935,40 @@
   }
 
 
+  // Render mermaid code blocks as SVG, escape everything else
+  var _mermaidCounter = 0;
+  function renderMermaidText(text) {
+    if (!text) return '';
+    var parts = text.split(/(```mermaid[\s\S]*?```)/g);
+    var result = '';
+    for (var i = 0; i < parts.length; i++) {
+      var part = parts[i];
+      if (part.indexOf('```mermaid') === 0) {
+        var mermaidSrc = part.replace(/^```mermaid\s*\n?/, '').replace(/```\s*$/, '');
+        if (mermaidReady) {
+          var id = 'mermaid-' + (++_mermaidCounter);
+          result += '<div class="mermaid">' + escapeHtml(mermaidSrc) + '</div>';
+        } else {
+          result += '<pre class="mermaid-fallback"><code>' + escapeHtml(part) + '</code></pre>';
+        }
+      } else {
+        result += escapeHtml(part).replace(/\n/g, '<br>');
+      }
+    }
+    return result;
+  }
+
+
   function addMessage(role, text) {
     var el = document.createElement('div');
     el.className = 'message ' + role;
-    el.textContent = role === "agent" ? sanitizeAgentText(text) : text;
+    if (role === 'agent') {
+      var cleaned = sanitizeAgentText(text);
+      el.innerHTML = renderMermaidText(cleaned);
+      if (mermaidReady) { try { setTimeout(function() { mermaid.run({ nodes: [el] }).catch(function(){}); }, 50); } catch(e) {} }
+    } else {
+      el.textContent = text;
+    }
     messagesEl.appendChild(el);
     scrollToBottom();
     return el;

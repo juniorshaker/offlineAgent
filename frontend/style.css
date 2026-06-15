@@ -1093,6 +1093,28 @@ body::before {
   color: #92400e;
   font-style: italic;
 }
+
+/* Mermaid diagram rendering */
+.message.agent .mermaid {
+  margin: 12px 0;
+  padding: 16px;
+  background: rgba(255,255,255,0.04);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow-x: auto;
+}
+.message.agent .mermaid svg {
+  max-width: 100%;
+  height: auto;
+}
+.message.agent .mermaid-fallback {
+  margin: 8px 0;
+  padding: 12px;
+  background: var(--surface);
+  border-radius: 4px;
+  overflow-x: auto;
+  font-size: 0.85rem;
+}
 /* SSE retry banner */
 #sse-retry-banner {
   animation: slideDown 0.3s ease-out;
