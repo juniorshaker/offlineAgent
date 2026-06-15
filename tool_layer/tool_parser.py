@@ -149,7 +149,8 @@ def _fuzzy_parse_tool_calls(text: str) -> list[ParsedToolCall]:
         "browser_navigate|browser_screenshot|browser_click|"
         "browser_type|browser_get_content|browser_get_html|"
         "browser_exec|browser_status|"
-        "write_docx|write_xlsx|write_pptx"
+        "write_docx|write_xlsx|write_pptx|"
+        "db_connect|db_list_tables|db_query|db_exec"
     )
     standalone_re = re.compile(
         r"<(" + known_tools + r")"
@@ -171,16 +172,22 @@ def _fuzzy_parse_tool_calls(text: str) -> list[ParsedToolCall]:
 
 def has_tool_calls(text: str) -> bool:
     """Quick check if text contains any tool_call blocks."""
-    return bool(
-        "<tool_call>" in text
-        or "<function_call>" in text
-        or "<read_file>" in text
-        or "<write_file>" in text
-        or "<list_dir>" in text
-        or "<search_code>" in text
-        or "<find_files>" in text
-        or "<shell>" in text
-    )
+    if "<tool_call>" in text or "<function_call>" in text:
+        return True
+    # Standalone tool name checks (LLMs sometimes skip outer wrapper)
+    _all_tools = [
+        "read_file", "write_file", "list_dir", "search_code", "find_files",
+        "shell", "read_template", "write_output", "web_fetch",
+        "browser_navigate", "browser_screenshot", "browser_click",
+        "browser_type", "browser_get_content", "browser_get_html",
+        "browser_exec", "browser_status",
+        "write_docx", "write_xlsx", "write_pptx",
+        "db_connect", "db_list_tables", "db_query", "db_exec",
+    ]
+    for t in _all_tools:
+        if f"<{t}>" in text or f"<{t} " in text:
+            return True
+    return False
 
 
 def extract_text_without_tools(text: str) -> str:

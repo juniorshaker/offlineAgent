@@ -641,6 +641,11 @@ def run_tool_loop(messages: list[dict], system_prompt: str, state: StateManager,
                     "has_tool_calls=True but parse empty, treating as text",
                     req_id=req_id,
                 )
+                # Debug: log raw response snippet for diagnosis
+                _log(
+                    "Parse-fail raw response (first 300 chars): " + response[:300],
+                    "DEBUG", req_id,
+                )
                 # Strip raw XML tool tags so user never sees them
                 import re
                 cleaned = re.sub(r'<tool_call>.*?</tool_call>', '[工具调用解析失败，已移除]', response, flags=re.DOTALL)
