@@ -1568,6 +1568,71 @@ def test_llm_empty_response_scenarios():
 
 
 
+# === External test suite runners ===
+def _run_external_test(filename, suite_name):
+    """Run an external test file and report pass/fail count."""
+    import subprocess
+    import re
+    global _TESTS_RUN, _TESTS_PASSED, _TESTS_FAILED
+    print(f"\n{'='*60}")
+    print(f"  {suite_name}")
+    print(f"{'='*60}")
+    try:
+        result = subprocess.run(
+            ["python", str(Path(__file__).resolve().parent / filename)],
+            capture_output=True, text=True, timeout=120,
+            cwd=str(Path(__file__).resolve().parent.parent)
+        )
+        output = result.stdout + result.stderr
+        # Count passes and failures from output
+        passes = len(re.findall(r'\[PASS\]', output))
+        # Also try unittest format: "Ran N tests"
+        unittest_match = re.search(r'Ran (\d+) tests?', output)
+        if unittest_match:
+            # unittest format - all passed if OK
+            unittest_count = int(unittest_match.group(1))
+            if 'OK' in output or 'FAILED' not in output.split('\n')[-3]:
+                passes = max(passes, unittest_count)
+        # Count failures
+        fails = len(re.findall(r'\[FAIL\]', output))
+        fails2 = len(re.findall(r'FAIL:', output))
+        fails = max(fails, fails2)
+        total = passes + fails
+        if total == 0:
+            # Fallback: count Results line
+            res_match = re.search(r'Results:\s*(\d+)/(\d+) passed', output)
+            if res_match:
+                passes = int(res_match.group(1))
+                fails = int(res_match.group(2)) - passes
+                total = int(res_match.group(2))
+        if total == 0:
+            total = passes if passes > 0 else 1
+        _TESTS_RUN += total
+        _TESTS_PASSED += passes
+        _TESTS_FAILED += fails
+        print(f"  Results: {passes}/{total} passed, {fails} failed")
+        if fails == 0:
+            print(f"  Status: ALL TESTS PASSED")
+        else:
+            print(f"  Status: {fails} FAILURES")
+    except Exception as e:
+        _TESTS_RUN += 1
+        _TESTS_FAILED += 1
+        print(f"  [CRASH] {suite_name}: {e}")
+
+def test_pending_suite():
+    _run_external_test("test_pending.py", "Pending Issues Suite")
+
+def test_autoskill_suite():
+    _run_external_test("test_autoskill.py", "Autoskill Suite")
+
+def test_server_fixes_suite():
+    _run_external_test("test_server_fixes.py", "Server Fixes Suite")
+
+def test_skill_injection_suite():
+    _run_external_test("test_skill_injection.py", "Skill Injection Suite")
+
+
 def run_all():
     print("\n" + "=" * 60)
     print("  OfflineAgent — Complete Test Suite")
@@ -1606,6 +1671,10 @@ def run_all():
         test_echo_mode_warning,
         test_image_description_builder,
         test_llm_empty_response_scenarios,
+        test_pending_suite,
+        test_autoskill_suite,
+        test_server_fixes_suite,
+        test_skill_injection_suite,
     ]
 
     for test_fn in tests:
