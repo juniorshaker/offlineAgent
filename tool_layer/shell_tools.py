@@ -5,7 +5,7 @@ Shell command execution with whitelist enforcement.
 
 import subprocess
 
-SHELL_TIMEOUT = 60
+SHELL_TIMEOUT = 3600
 
 
 def shell(command: str, allowed_commands: list[str] | None = None) -> str:

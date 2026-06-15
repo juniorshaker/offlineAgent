@@ -164,7 +164,7 @@ def db_connect(
             conn = _pymysql.connect(
                 host=host, port=port, user=user, password=password,
                 database=database, charset="utf8mb4",
-                connect_timeout=10, read_timeout=30,
+                connect_timeout=30, read_timeout=3600,
             )
         elif driver == "oracledb":
             conn = _oracledb.connect(

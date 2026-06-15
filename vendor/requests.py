@@ -42,7 +42,7 @@ class ConnectionError(Exception):
     pass
 
 
-def post(url, headers=None, json=None, timeout=60):
+def post(url, headers=None, json=None, timeout=3600):
     """Send a POST request with JSON body.
 
     Args:
@@ -85,7 +85,7 @@ def post(url, headers=None, json=None, timeout=60):
         raise ConnectionError(str(e))
 
 
-def get(url, headers=None, timeout=60):
+def get(url, headers=None, timeout=3600):
     """Send a GET request."""
     if headers is None:
         headers = {}

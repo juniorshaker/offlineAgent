@@ -1097,13 +1097,13 @@ def test_dual_backend_parsing():
             "primary": {
                 "url": "http://internal-api/v1",
                 "model": "Qwen3",
-                "timeout": 300,
+                "timeout": 3600,
                 "api_key": "",
             },
             "secondary": {
                 "url": "https://api.openai.com/v1",
                 "model": "gpt-4",
-                "timeout": 120,
+                "timeout": 3600,
                 "api_key": "sk-test",
             },
         }
@@ -1156,7 +1156,7 @@ def test_dual_backend_parsing():
             "primary": {
                 "url": "http://api/v1",
                 "model": "test",
-                "timeout": 60,
+                "timeout": 3600,
                 "api_key": "sk-secret-123",
             },
         }
@@ -1179,7 +1179,7 @@ def test_backend_chat_fn_behavior():
             "primary": {
                 "url": "",
                 "model": "test",
-                "timeout": 60,
+                "timeout": 3600,
                 "api_key": "",
             },
         }
@@ -1205,8 +1205,8 @@ def test_model_command_in_chat_loop():
     config = {
         "llm": {
             "active": "primary",
-            "primary": {"url": "", "model": "Qwen3", "timeout": 60, "api_key": ""},
-            "secondary": {"url": "", "model": "gpt-4", "timeout": 120, "api_key": "sk-test"},
+            "primary": {"url": "", "model": "Qwen3", "timeout": 3600, "api_key": ""},
+            "secondary": {"url": "", "model": "gpt-4", "timeout": 3600, "api_key": "sk-test"},
         },
         "agent": {"max_history": 10, "max_tokens_estimate": 8000},
     }

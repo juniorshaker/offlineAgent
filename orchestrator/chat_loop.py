@@ -405,7 +405,7 @@ class ChatLoop:
             self.logger.turn_start(user_input)
 
         agent_cfg = self.config.get("agent", {})
-        llm_timeout = self.config.get("llm", {}).get("timeout", 60)
+        llm_timeout = self.config.get("llm", {}).get("timeout", 3600)
 
         # ── Topic guard ──
         if (

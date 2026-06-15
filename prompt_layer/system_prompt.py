@@ -145,6 +145,7 @@ def _build_tools_section(config: dict) -> str:
         "db_query": "- **db_query** (sql, limit?): Run a SELECT query on the connected database.",
         "db_status": "- **db_status**: Show current database connection status.",
         "db_disconnect": "- **db_disconnect**: Close all database connections.",
+        "batch_analyze": "- **batch_analyze** (target_path, question, scope?): Analyze a directory/file in batch. Use when analyzing MANY files (bloodline, logic, relationships) or a single LARGE file (>50KB). This tool handles indexing, parsing, and LLM refinement internally - use this instead of calling read_file repeatedly for each file.",
     }
 
     for tool_name in enabled:

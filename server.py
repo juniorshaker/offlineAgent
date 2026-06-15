@@ -127,8 +127,8 @@ def _get_active_timeout() -> int:
     llm_cfg = config.get("llm", {})
     if "primary" in llm_cfg:
         active = llm_cfg.get("active", "primary")
-        return llm_cfg.get(active, {}).get("timeout", 300)
-    return llm_cfg.get("timeout", 300)
+        return llm_cfg.get(active, {}).get("timeout", 3600)
+    return llm_cfg.get("timeout", 3600)
 
 def create_llm_chat_fn(config: dict, base_dir: Path):
     """Create a unified LLM chat function supporting multi-backend config.
@@ -151,7 +151,7 @@ def create_llm_chat_fn(config: dict, base_dir: Path):
                 backends[name] = {
                     "url": be.get("url", ""),
                     "model": be.get("model", "unknown"),
-                    "timeout": be.get("timeout", 300),
+                    "timeout": be.get("timeout", 3600),
                     "api_key": be.get("api_key", ""),
                 }
         active = llm_cfg.get("active", "primary")
@@ -164,7 +164,7 @@ def create_llm_chat_fn(config: dict, base_dir: Path):
             "default": {
                 "url": llm_cfg.get("url", ""),
                 "model": llm_cfg.get("model", "Qwen3"),
-                "timeout": llm_cfg.get("timeout", 300),
+                "timeout": llm_cfg.get("timeout", 3600),
                 "api_key": llm_cfg.get("api_key", ""),
             }
         }
@@ -463,7 +463,7 @@ def run_tool_loop(messages: list[dict], system_prompt: str, state: StateManager,
 
     def _dynamic_timeout(msg_count: int) -> int:
         extra = (msg_count // 10) * 5
-        return min(base_timeout + extra, 180)
+        return min(base_timeout + extra, 3600)
 
     agent_cfg = config.get("agent", {})
     budget_ratio = agent_cfg.get("tool_budget_ratio", 0.9)
@@ -650,7 +650,7 @@ def run_tool_loop(messages: list[dict], system_prompt: str, state: StateManager,
                 import re
                 cleaned = re.sub(r'<tool_call>.*?</tool_call>', '', response, flags=re.DOTALL)
                 for tag in ['function_call', 'tool', 'invoke']:
-                    cleaned = re.sub(rf'<{tag}>.*?</{cleaned = re.sub(rf'<{tag}>.*?</{tag}>', '', cleaned, flags=re.DOTALL)
+                    cleaned = re.sub(rf'<{tag}>.*?</{tag}>', '', cleaned, flags=re.DOTALL)
                 if cleaned.strip():
                     final_parts.append(cleaned)
                 else:
@@ -1581,7 +1581,7 @@ def register_tools(registry: ToolRegistry, config: dict, base_dir: Path):
     if "web_fetch" in enabled:
         registry.register("web_fetch", lambda **kw: browser_tools.web_fetch(
             kw.get("url", ""), kw.get("method", "GET"), kw.get("body", ""),
-            kw.get("headers", ""), kw.get("timeout", 30)))
+            kw.get("headers", ""), kw.get("timeout", 3600)))
     if "browser_status" in enabled:
         registry.register("browser_status", lambda **kw: browser_tools.browser_status(base_dir))
     if "browser_navigate" in enabled:

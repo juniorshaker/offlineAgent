@@ -114,6 +114,10 @@ def _fuzzy_parse_tool_calls(text: str) -> list[ParsedToolCall]:
     3. Standalone tool name as wrapper: <read_file><path>x</path></read_file>
     4. Parameter name aliases: file→path, query→pattern, etc.
     """
+    # 0. Repair common LLM XML typos before any parsing
+    #    e.g. <name=read_file</name> -> <name>read_file</name> (= instead of >)
+    text = re.sub(r'<(\w+)\s*=\s*([^<]*)</\1>', r'<\1>\2</\1>', text)
+
     # 1. Strip markdown fences first
     cleaned = _strip_markdown_fences(text)
     if cleaned != text:

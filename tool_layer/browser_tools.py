@@ -151,7 +151,7 @@ def _close_browser():
 # HTTP tool (always available)
 # ---------------------------------------------------------------------------
 
-def web_fetch(url: str, method: str = "GET", body: str = "", headers: str = "", timeout: int = 30) -> str:
+def web_fetch(url: str, method: str = "GET", body: str = "", headers: str = "", timeout: int = 3600) -> str:
     """Make an HTTP request.
 
     Args:

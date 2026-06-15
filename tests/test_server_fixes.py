@@ -112,7 +112,7 @@ class TestDynamicTimeout(unittest.TestCase):
 
         self.assertIn("def _dynamic_timeout(msg_count: int) -> int:", content)
         self.assertIn("extra = (msg_count // 10) * 5", content)
-        self.assertIn("return min(base_timeout + extra, 180)", content)
+        self.assertIn("return min(base_timeout + extra, 3600)", content)
 
     def test_base_timeout_set(self):
         """base_timeout is set from config."""

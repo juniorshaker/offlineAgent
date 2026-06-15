@@ -88,7 +88,7 @@ def execute_tool_loop(
     """
     iterations = 0
     final_text_parts: list[str] = []
-    llm_timeout = config.get("llm", {}).get("timeout", 60)
+    llm_timeout = config.get("llm", {}).get("timeout", 3600)
 
     agent_cfg = config.get("agent", {})
     budget_ratio = agent_cfg.get("tool_budget_ratio", 0.9)

@@ -10,14 +10,14 @@ llm:
   primary:
     url: "http://your-internal-api/v1/chat/completions"
     model: "Qwen3"
-    timeout: 300
+    timeout: 3600
     api_key: ""
 
   # Secondary backend (OpenAI-compatible API with token auth)
   secondary:
     url: "https://api.openai.com/v1/chat/completions"
     model: "gpt-4"
-    timeout: 120
+    timeout: 3600
     api_key: "sk-your-api-key-here"
 
 skills:
@@ -94,6 +94,7 @@ tools:
     - db_query
     - db_status
     - db_disconnect
+    - batch_analyze
   shell:
     allowed:
       - mvn
@@ -129,6 +130,16 @@ logging:
   max_log_files: 7
   console: true
   file: true
+
+# =============================================================================
+# Pipeline - batch data processing settings
+# =============================================================================
+pipeline:
+  max_concurrent_groups: 3
+  max_rounds_per_group: 5
+  batch_size: 8
+  max_summary_chars: 800
+  enable_checkpoint: true
 
 # =============================================================================
 # Skill keyword mapping (pre-filter for auto-injection)

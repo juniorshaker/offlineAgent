@@ -48,6 +48,7 @@ from Offlineagent.tool_layer import shell_tools
 from Offlineagent.tool_layer import document_tools
 from Offlineagent.tool_layer import browser_tools
 from Offlineagent.tool_layer import db_tools
+from Offlineagent.tool_layer.pipeline.pipeline import batch_analyze as _pipeline_batch_analyze
 
 # Memory layer
 from Offlineagent.memory_layer.memory_store import MemoryStore
@@ -348,7 +349,7 @@ def create_llm_chat_fn(config: dict, logger=None, token_tracker=None):
                 backends[name] = {
                     "url": be.get("url", ""),
                     "model": be.get("model", "unknown"),
-                    "timeout": be.get("timeout", 60),
+                    "timeout": be.get("timeout", 3600),
                     "api_key": be.get("api_key", ""),
                 }
         active = llm_cfg.get("active", "primary")
@@ -361,7 +362,7 @@ def create_llm_chat_fn(config: dict, logger=None, token_tracker=None):
             "default": {
                 "url": llm_cfg.get("url", ""),
                 "model": llm_cfg.get("model", "Qwen3"),
-                "timeout": llm_cfg.get("timeout", 60),
+                "timeout": llm_cfg.get("timeout", 3600),
                 "api_key": llm_cfg.get("api_key", ""),
             }
         }
@@ -512,6 +513,7 @@ def create_llm_chat_fn(config: dict, logger=None, token_tracker=None):
 
 # -- Tool registration --
 
+_batch_analyze_chat_fn = None
 def register_tools(registry: ToolRegistry, config: dict, base_dir: Path):
     """Register all enabled tools with appropriate closures."""
     enabled = config.get("tools", {}).get("enabled", [])
@@ -569,8 +571,8 @@ def register_tools(registry: ToolRegistry, config: dict, base_dir: Path):
         ),
         "web_fetch": (
         "Make an HTTP GET or POST request",
-        lambda url, method="GET", body="", headers="", timeout=30:
-            browser_tools.web_fetch(url, method, body, headers, timeout),
+        lambda url, method="GET", body="", headers="", timeout=3600:
+            browser_tools.web_fetch(url, method, body, headers, timeout=timeout),
         {"url": "Target URL", "method": "HTTP method (GET/POST)",
          "body": "Request body for POST", "headers": "Optional JSON headers",
          "timeout": "Timeout in seconds"},
@@ -667,6 +669,11 @@ def register_tools(registry: ToolRegistry, config: dict, base_dir: Path):
             lambda: db_tools.db_disconnect(),
             {},
         ),
+        "batch_analyze": (
+            "Batch-analyze a directory or large file. Use for bloodline, code logic, multi-file relationships, or single large file (>50KB).",
+            lambda target_path, question, scope="": _pipeline_batch_analyze(target_path, question, scope, _chat_fn=_batch_analyze_chat_fn, _config=config),
+            {"target_path": "Absolute path to file or directory", "question": "What to analyze", "scope": "Optional type filter"},
+        ),
     }
 
     for tool_name in enabled:
@@ -740,6 +747,8 @@ def main():
 
     # Register tools
     registry = ToolRegistry()
+    global _batch_analyze_chat_fn
+    _batch_analyze_chat_fn = llm_chat_fn
     register_tools(registry, config, base_dir)
 
 
