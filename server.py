@@ -672,7 +672,7 @@ def run_tool_loop(messages: list[dict], system_prompt: str, state: StateManager,
                         "tool": tc.name,
                     })
 
-                result = registry.execute(tc.name, tc.params)
+                result = registry.dispatch(tc.name, tc.params)
                 result_str = str(result)[:4000]
 
                 state.messages.append({
