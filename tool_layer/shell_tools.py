@@ -27,6 +27,12 @@ def shell(command: str, allowed_commands: list[str] | None = None) -> str:
         cmd_first = command.strip().split()[0] if command.strip().split() else ""
         cmd_lower = cmd_first.lower()
 
+
+        # Builtin bypass: harmless shell builtins (cd, echo, dir, etc.)
+        # allowed so LLM can chain: cd /path && mvn test
+        _builtins = {"cd", "chdir", "echo", "dir", "ls", "type", "cat", "set", "pwd", "mkdir", "rmdir"}
+        if cmd_lower in _builtins:
+            return _execute(command)  # skip whitelist, execute directly
         # Also check full path variants (e.g., .\python\python.exe → python)
         import os as _os
         cmd_basename = _os.path.basename(cmd_first).lower()
@@ -43,6 +49,11 @@ def shell(command: str, allowed_commands: list[str] | None = None) -> str:
             if not found:
                 return f"[Blocked] Command '{cmd_first}' is not in the allowed whitelist.\nAllowed: {', '.join(allowed_commands)}"
 
+    return _execute(command)
+
+
+def _execute(command: str) -> str:
+    """Internal: execute a shell command and return output."""
     try:
         result = subprocess.run(
             command,
