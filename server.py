@@ -76,6 +76,7 @@ _active_states: dict[str, StateManager] = {}
 _current_state_id: str = "default"
 _cancel_flags: dict[str, bool] = {}
 _cancel_lock = threading.Lock()
+_shutdown_event = threading.Event()  # set by Ctrl+C signal handler
 
 # ============================================================
 # Logging
@@ -385,7 +386,16 @@ def _llm_call_with_timeout(llm_fn, messages, timeout_sec: int, req_id: str = "")
         result_container = {"response": None, "error": None, "done": False}
         t = _threading.Thread(target=_call, daemon=True)
         t.start()
-        t.join(timeout=timeout_sec)
+        # Poll in 1-second chunks so Ctrl+C / shutdown is responsive
+        waited = 0
+        while waited < timeout_sec:
+            t.join(timeout=1.0)
+            waited += 1
+            if result_container["done"]:
+                break
+            if _shutdown_event.is_set():
+                _log("Shutdown during LLM call, cancelling...", "INFO", req_id)
+                return ""  # empty response on shutdown
 
         if not result_container["done"]:
             _log(f"LLM call timed out after {timeout_sec}s (attempt {attempt + 1}/3)", "WARN", req_id)
@@ -455,6 +465,9 @@ def run_tool_loop(messages: list[dict], system_prompt: str, state: StateManager,
 
     try:
         while True:
+            if _shutdown_event.is_set():
+                _log(f"Shutdown during tool loop at iteration {iterations}", "INFO", req_id)
+                return ""  # empty response on shutdown
             if _is_cancelled(req_id):
                 _log(f"Request cancelled by user at iteration {iterations}", "INFO", req_id)
                 return "[Cancelled] Request was cancelled by user."
@@ -1578,6 +1591,7 @@ def start_server(config: dict, base_dir: Path):
     def shutdown_handler(signum, frame):
         _log("Shutting down server...")
         server.shutdown()
+        _shutdown_event.set()  # notify all threads to stop
 
     signal.signal(signal.SIGINT, shutdown_handler)
     signal.signal(signal.SIGTERM, shutdown_handler)
@@ -1586,6 +1600,8 @@ def start_server(config: dict, base_dir: Path):
         # Polling loop handles Ctrl+C reliably on Windows (serve_forever doesn't)
         server.timeout = 0.5
         while True:
+            if _shutdown_event.is_set():
+                break
             server.handle_request()
     except KeyboardInterrupt:
         _log("Server stopped by user.")
