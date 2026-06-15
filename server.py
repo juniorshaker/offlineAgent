@@ -1590,8 +1590,8 @@ def start_server(config: dict, base_dir: Path):
 
     def shutdown_handler(signum, frame):
         _log("Shutting down server...")
-        server.shutdown()
-        _shutdown_event.set()  # notify all threads to stop
+        _shutdown_event.set()  # tell polling loop to exit
+        server.server_close()  # close socket so handle_request() unblocks immediately
 
     signal.signal(signal.SIGINT, shutdown_handler)
     signal.signal(signal.SIGTERM, shutdown_handler)
