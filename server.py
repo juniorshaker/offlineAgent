@@ -648,9 +648,9 @@ def run_tool_loop(messages: list[dict], system_prompt: str, state: StateManager,
                 )
                 # Strip raw XML tool tags so user never sees them
                 import re
-                cleaned = re.sub(r'<tool_call>.*?</tool_call>', '[工具调用解析失败，已移除]', response, flags=re.DOTALL)
+                cleaned = re.sub(r'<tool_call>.*?</tool_call>', '', response, flags=re.DOTALL)
                 for tag in ['function_call', 'tool', 'invoke']:
-                    cleaned = re.sub(rf'<{tag}>.*?</{tag}>', '[工具调用解析失败，已移除]', cleaned, flags=re.DOTALL)
+                    cleaned = re.sub(rf'<{tag}>.*?</{cleaned = re.sub(rf'<{tag}>.*?</{tag}>', '', cleaned, flags=re.DOTALL)
                 if cleaned.strip():
                     final_parts.append(cleaned)
                 else:

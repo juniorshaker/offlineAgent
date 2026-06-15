@@ -848,8 +848,9 @@
       case 'message':
         sseDoneReceived = true;
         finishStreaming();
-        if (currentAgentMsg) { currentAgentMsg.textContent = data.text || ''; }
-        else { currentAgentMsg = addMessage('agent', data.text || ''); }
+        var displayText = sanitizeAgentText(data.text || '');
+        if (currentAgentMsg) { currentAgentMsg.textContent = displayText; }
+        else { currentAgentMsg = addMessage('agent', displayText); }
         // Detect LLM Error responses and style them as connection errors
         if (data.text && data.text.indexOf('[LLM Error]') === 0) {
           currentAgentMsg.classList.add('llm-error');
@@ -898,7 +899,7 @@
     header.appendChild(statusEl); header.appendChild(chevron);
     var body = document.createElement('div');
     body.className = 'tool-block-body';
-    body.textContent = detail;
+    body.textContent = sanitizeAgentText(detail);
     header.addEventListener('click', function () { block.classList.toggle('expanded'); });
     block.appendChild(header); block.appendChild(body);
     messagesEl.appendChild(block);
@@ -906,10 +907,26 @@
     return block;
   }
 
+  // Strip tool call XML and ugly placeholders from displayed text
+  function sanitizeAgentText(text) {
+    if (!text) return text;
+    var cleaned = text;
+    // Remove complete <tool_call>...</tool_call> blocks
+    cleaned = cleaned.replace(/<tool_call>[\s\S]*?<\/tool_call>/g, '');
+    // Remove standalone tool XML tags (fallback patterns)
+    cleaned = cleaned.replace(/<\/?(?:tool_call|function_call|tool|invoke|read_file|write_file|list_dir|search_code|find_files|shell|db_connect|db_list_tables|db_query|db_exec|web_fetch|browser_\w+) ?[^>]*>/g, '');
+    // Remove "[工具调用解析失败，已移除]" placeholders
+    cleaned = cleaned.replace(/\[工具调用解析失败.*?\]/g, '').trim();
+    // Collapse multiple blank lines
+    cleaned = cleaned.replace(/\n{3,}/g, '\n\n');
+    return cleaned || text;
+  }
+
+
   function addMessage(role, text) {
     var el = document.createElement('div');
     el.className = 'message ' + role;
-    el.textContent = text;
+    el.textContent = role === "agent" ? sanitizeAgentText(text) : text;
     messagesEl.appendChild(el);
     scrollToBottom();
     return el;
