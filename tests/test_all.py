@@ -1568,6 +1568,46 @@ def test_llm_empty_response_scenarios():
 
 
 
+def test_tool_loop_dispatch():
+    """Verify run_tool_loop actually dispatches tools via registry.dispatch().
+    This guards against method-name mismatches like execute vs dispatch."""
+    _header("31. Tool Loop Dispatch Integration")
+    from Offlineagent.tool_layer.tool_registry import ToolRegistry
+    from Offlineagent.orchestrator.state_manager import StateManager
+
+    # Create a registry with a spy tool
+    registry = ToolRegistry()
+    spy_calls = []
+    def spy_tool(path: str = ""):
+        spy_calls.append(path)
+        return f"[Spy] Read: {path}"
+
+    registry.register("read_file", "Read a file", spy_tool, {"path": "str"})
+
+    # Verify dispatch works directly
+    result = registry.dispatch("read_file", {"path": "/test/path.java"})
+    assert_in("[Spy] Read: /test/path.java", result, "dispatch returns tool result")
+    assert_eq(len(spy_calls), 1, "spy tool was called once")
+    assert_eq(spy_calls[0], "/test/path.java", "spy received correct arg")
+
+    # Verify unknown tool error
+    result = registry.dispatch("nonexistent_tool", {})
+    assert_in("Unknown tool", result, "unknown tool returns error")
+
+    # Verify names() returns registered tools
+    names = registry.names()
+    assert_in("read_file", names, "read_file in registry names")
+
+    # Verify get() returns tool def
+    tool = registry.get("read_file")
+    assert_eq(tool.name, "read_file", "get returns correct tool")
+    assert_eq(tool.description, "Read a file", "get returns description")
+
+    # Verify get() returns None for unknown
+    tool = registry.get("nonexistent_tool")
+    assert_true(tool is None, "get returns None for unknown tool")
+
+
 # === External test suite runners ===
 def _run_external_test(filename, suite_name):
     """Run an external test file and report pass/fail count."""
@@ -1671,6 +1711,7 @@ def run_all():
         test_echo_mode_warning,
         test_image_description_builder,
         test_llm_empty_response_scenarios,
+        test_tool_loop_dispatch,
         test_pending_suite,
         test_autoskill_suite,
         test_server_fixes_suite,
