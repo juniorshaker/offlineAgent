@@ -137,6 +137,13 @@ def _build_tools_section(config: dict) -> str:
         "write_docx": "- **write_docx** (path, fields, template_path): Fill a Word template and save.",
         "write_xlsx": "- **write_xlsx** (path, fields, template_path): Fill an Excel template and save.",
         "write_pptx": "- **write_pptx** (path, fields, template_path): Fill a PowerPoint template and save.",
+        "db_connect": "- **db_connect** (engine, host, port, user, password, database): Connect to a database. engine: mysql|tdsql|gbase|oracle|gcdw.",
+        "db_list_procedures": "- **db_list_procedures** (filter?): List stored procedures, optionally filtered by name.",
+        "db_get_procedure": "- **db_get_procedure** (name): Get the full definition of a stored procedure.",
+        "db_list_tables": "- **db_list_tables** (filter?): List tables and views in the connected database.",
+        "db_query": "- **db_query** (sql, limit?): Run a SELECT query on the connected database.",
+        "db_status": "- **db_status**: Show current database connection status.",
+        "db_disconnect": "- **db_disconnect**: Close all database connections.",
     }
 
     for tool_name in enabled:
